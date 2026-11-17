@@ -14,9 +14,9 @@ const catalog: Catalog = new Map([
       priceLargeCents: 1690,
       active: true,
       ingredients: [
-        { id: 'dough', name: 'Taikina', qty: 1, removable: false },
+        { id: 'dough', name: 'Dough', qty: 1, removable: false },
         { id: 'pepperoni', name: 'Pepperoni', qty: 2, removable: true },
-        { id: 'onion', name: 'Sipuli', qty: 1, removable: true },
+        { id: 'onion', name: 'Onion', qty: 1, removable: true },
       ],
     },
   ],
