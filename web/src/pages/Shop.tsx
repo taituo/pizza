@@ -129,6 +129,9 @@ export function Shop() {
             Pick your pizzas, pay and follow your order from the kitchen to the map. Delivery {money(menu.deliveryFeeCents)},{' '}
             within {menu.deliveryRadiusKm} km.
           </p>
+          <Link className="last-order" to="/chat">
+            Or just tell us what you want: order by chat →
+          </Link>
           {lastOrder && (
             <Link className="last-order" to={`/order/${lastOrder.id}?token=${encodeURIComponent(lastOrder.token)}`}>
               Continue tracking your previous order →

@@ -6,6 +6,7 @@ resources:
   - config.yaml
   - api.yaml
   - worker.yaml
+  - agent-worker.yaml
   - web.yaml
   - ingress.yaml
 labels:
@@ -14,6 +15,9 @@ labels:
 images:
   - name: pizza-server
     newName: ghcr.io/taituo/pizza-server
+    newTag: latest
+  - name: pizza-agent
+    newName: ghcr.io/taituo/pizza-agent
     newTag: latest
   - name: pizza-web
     newName: ghcr.io/taituo/pizza-web

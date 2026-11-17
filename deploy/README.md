@@ -22,12 +22,21 @@ PG_PASSWORD="$(openssl rand -hex 24)"
 kubectl -n pizza create secret generic pizza-secrets \
   --from-literal=POSTGRES_PASSWORD="$PG_PASSWORD" \
   --from-literal=DATABASE_URL="postgres://pizza:$PG_PASSWORD@postgres.pizza.svc.cluster.local:5432/pizza" \
-  --from-literal=STAFF_TOKEN="$(openssl rand -hex 24)"
+  --from-literal=STAFF_TOKEN="$(openssl rand -hex 24)" \
+  --from-literal=AGENT_TOKEN="$(openssl rand -hex 24)"
 
 kubectl -n temporal create secret generic temporal-db --from-literal=password="$PG_PASSWORD"
 ```
 
 Stripe: add `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` to the same Secret and set `PAYMENT_PROVIDER=stripe` in the ConfigMap. The webhook address is `https://<domain>/api/webhooks/stripe`, with events `checkout.session.completed`, `checkout.session.expired`, `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed`.
+
+Ordering agent: without a model the agent workers answer with the scripted harness. For Deep Agents set `AGENT_MODEL` in the `agent-config` ConfigMap (e.g. `anthropic:claude-sonnet-5-5`) and give the provider key in its own Secret, which only the agent workers mount:
+
+```bash
+kubectl -n pizza create secret generic agent-secrets --from-literal=ANTHROPIC_API_KEY=...
+```
+
+Agent workers get `AGENT_TOKEN` and nothing else from `pizza-secrets`: no database URL, no staff token. The `agent-worker` NetworkPolicy limits them to DNS, the API, Temporal and public HTTPS. k3s enforces NetworkPolicies out of the box; on EKS enable network policy support in the VPC CNI, on GKE use Dataplane V2. In the cloud overlay the agent workers prefer nodes labelled `pizza.dev/pool=agents` and tolerate the matching taint, so they can have a node pool of their own.
 
 In the cloud profile `DATABASE_URL` points to the managed database and the `POSTGRES_PASSWORD` key is not needed.
 

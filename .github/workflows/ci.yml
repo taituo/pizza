@@ -40,6 +40,23 @@ jobs:
           TEST_DATABASE_URL: postgres://pizza:pizza@localhost:5432/pizza
       - run: npm run build
 
+  agent:
+    name: Agent tests (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
+      - run: pip install -r requirements.txt && pip install --no-deps -e . && pip install pytest pytest-asyncio
+      # Harness tests use a scripted model (no API key); the workflow test downloads the Temporal dev server.
+      - run: python -m pytest -q
+
   manifests:
     name: Kubernetes manifests and Temporal chart
     runs-on: ubuntu-latest
@@ -87,6 +104,13 @@ jobs:
           curl -fsS http://localhost:8080/order/does-not-exist | grep -q '<div id="root">'
       - name: 60 orders to completion
         run: npm run load -- --orders 60 --concurrency 10 --restock --pay --wait --timeout 300
+      - name: Order by chat (agent worker → proposal → confirm → order completes)
+        run: |
+          docker compose --profile sim exec -T sim node dist/sim/chat.js --confirm --pay --wait \
+            "hi" "two large pepperoni without onion and a cola" "pickup please"
+          docker compose exec -T postgres psql -U pizza -d pizza -c "select * from bi_agent_daily" -c "select * from bi_conversation_funnel"
+          n=$(docker compose exec -T postgres psql -U pizza -d pizza -Atc "select count(*) from orders where channel = 'agent' and status = 'completed'")
+          [ "$n" = "1" ] || { echo "FAIL: expected one completed agent order, got $n"; exit 1; }
       - name: Kill the workers mid-run; the workflows must still finish
         run: |
           npm run load -- --orders 120 --concurrency 20 --restock --pay --wait --timeout 420 &
@@ -125,7 +149,7 @@ jobs:
   images:
     name: Publish images (GHCR)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, manifests, e2e]
+    needs: [test, agent, manifests, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -158,3 +182,12 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/pizza-web:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: agent
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pizza-agent:latest
+            ghcr.io/${{ github.repository_owner }}/pizza-agent:${{ github.sha }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,scope=agent,mode=max

@@ -12,12 +12,21 @@ export class ApiError extends Error {
 
 export async function api<T>(
   path: string,
-  opts: { method?: string; body?: unknown; staffToken?: string; orderToken?: string } = {},
+  opts: {
+    method?: string;
+    body?: unknown;
+    staffToken?: string;
+    orderToken?: string;
+    conversationToken?: string;
+    proposalToken?: string;
+  } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   if (opts.staffToken) headers['x-staff-token'] = opts.staffToken;
   if (opts.orderToken) headers['x-order-token'] = opts.orderToken;
+  if (opts.conversationToken) headers['x-conversation-token'] = opts.conversationToken;
+  if (opts.proposalToken) headers['x-proposal-token'] = opts.proposalToken;
   let res: Response;
   try {
     res = await fetch(path, {

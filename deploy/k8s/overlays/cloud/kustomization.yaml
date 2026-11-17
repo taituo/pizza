@@ -8,7 +8,7 @@ resources:
   - ../../base
   - autoscaling.yaml
 patches:
-  - target: { kind: Deployment, name: "api|worker|web" }
+  - target: { kind: Deployment, name: "api|worker|web|agent-worker" }
     patch: |
       - op: add
         path: /spec/template/spec/topologySpreadConstraints
@@ -26,3 +26,21 @@ patches:
         value:
           - { name: WORKER_MAX_CONCURRENT_ACTIVITIES, value: "200" }
           - { name: WORKER_MAX_CONCURRENT_WORKFLOW_TASKS, value: "200" }
+  # Agent workers prefer their own node pool when there is one. Label and taint the pool:
+  #   pizza.dev/pool=agents   (taint: pizza.dev/pool=agents:NoSchedule)
+  # Without such a pool they run on the general nodes.
+  - target: { kind: Deployment, name: agent-worker }
+    patch: |
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - { key: pizza.dev/pool, operator: In, values: [agents] }
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - { key: pizza.dev/pool, operator: Equal, value: agents, effect: NoSchedule }

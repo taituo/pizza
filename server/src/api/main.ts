@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 
   const stripe =
     cfg.paymentProvider === 'stripe' ? new StripePaymentProvider(cfg.stripeSecretKey, cfg.publicUrl) : undefined;
-  const app = buildApp({ cfg, pool, runtime, hub, stripe });
+  const app = buildApp({ cfg, pool, runtime, conversations: runtime.conversations, hub, stripe });
   await app.listen({ port: cfg.port, host: cfg.host });
 
   const shutdown = async (signal: string): Promise<void> => {
