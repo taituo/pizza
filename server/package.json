@@ -1,0 +1,39 @@
+{
+  "name": "@pizza/server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ohut API, Temporal-workerit ja simulaattorit samassa modulaarisessa paketissa (eri käynnistyskomennot).",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "migrate": "tsx src/migrate.ts",
+    "dev:api": "tsx watch src/api/main.ts",
+    "dev:worker": "tsx watch src/worker/main.ts",
+    "sim": "tsx src/sim/main.ts",
+    "load": "tsx src/sim/load.ts",
+    "start:api": "node dist/api/main.js",
+    "start:worker": "node dist/worker/main.js",
+    "start:sim": "node dist/sim/main.js",
+    "start:migrate": "node dist/migrate.js"
+  },
+  "dependencies": {
+    "@temporalio/activity": "^1.25.0",
+    "@temporalio/client": "^1.25.0",
+    "@temporalio/common": "^1.25.0",
+    "@temporalio/worker": "^1.25.0",
+    "@temporalio/workflow": "^1.25.0",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "stripe": "^23.1.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "^1.25.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

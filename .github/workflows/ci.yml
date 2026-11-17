@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck, testit, build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pizza
+          POSTGRES_PASSWORD: pizza
+          POSTGRES_DB: pizza
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pizza" --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Workflow-testit lataavat Temporalin kehityspalvelimen; tietokantatestit käyttävät yllä olevaa Postgresia.
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://pizza:pizza@localhost:5432/pizza
+      - run: npm run build
+
+  manifests:
+    name: Kubernetes-manifestit ja Temporal-chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kustomize-overlayt
+        run: |
+          for overlay in vps-k3s cloud; do
+            kubectl kustomize deploy/k8s/overlays/$overlay > /tmp/$overlay.yaml
+            echo "$overlay: $(grep -c '^kind:' /tmp/$overlay.yaml) resurssia"
+          done
+      - name: Temporal Helm -chart molemmilla values-tiedostoilla
+        run: |
+          for profile in vps cloud; do
+            helm template temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
+              --namespace temporal -f deploy/temporal/values-$profile.yaml > /tmp/temporal-$profile.yaml
+            echo "$profile: $(grep -c '^kind:' /tmp/temporal-$profile.yaml) resurssia"
+          done
+
+  e2e:
+    name: Koko ketju Docker Composella (kuorma + workerin tappo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SIM_AUTOPAY: "false"
+      SIM_ACCEPT_MS: "200"
+      SIM_PREP_MS: "600"
+      SIM_DRIVE_MS: "2000"
+      SIM_PICKUP_MS: "300"
+      # Joka kymmenes maksupalvelukutsu epäonnistuu: ketjujen pitää silti päättyä oikein.
+      SIM_PAYMENT_FAIL_RATE: "0.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Käynnistä ympäristö
+        run: docker compose --profile sim up -d --build --wait --wait-timeout 300
+      - name: UI ja API vastaavat nginxin kautta
+        run: |
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+          curl -fsS http://localhost:8080/api/menu | grep -q margherita
+          curl -fsS http://localhost:8080/order/does-not-exist | grep -q '<div id="root">'
+      - name: 60 tilausta loppuun asti
+        run: npm run load -- --orders 60 --concurrency 10 --restock --pay --wait --timeout 300
+      - name: Tapa workerit kesken ajon, ketjujen pitää silti päättyä
+        run: |
+          npm run load -- --orders 120 --concurrency 20 --restock --pay --wait --timeout 420 &
+          LOAD_PID=$!
+          sleep 6
+          docker compose kill -s SIGKILL worker
+          sleep 3
+          docker compose --profile sim up -d --wait worker
+          wait $LOAD_PID
+      - name: Ei kaksoisveloituksia, ei hukattuja varauksia, ei jumiin jääneitä tilauksia
+        run: |
+          check() {
+            local name="$1" sql="$2" n
+            n=$(docker compose exec -T postgres psql -U pizza -d pizza -At -c "$sql")
+            echo "$name: $n"
+            [ "$n" = "0" ] || { echo "FAIL: $name"; exit 1; }
+          }
+          check "tilauksia, joilla useampi onnistunut maksu" \
+            "select count(*) from (select order_id from order_events where type = 'payment.succeeded' group by 1 having count(*) > 1) x"
+          check "tilauksia, joilla useampi hyvitys" \
+            "select count(*) from (select order_id from order_events where type = 'payment.refunded' group by 1 having count(*) > 1) x"
+          check "valmiita tilauksia ilman onnistunutta maksua" \
+            "select count(*) from orders o left join payments p on p.order_id = o.id where o.status = 'completed' and p.status is distinct from 'succeeded'"
+          check "peruttuja tilauksia, joiden maksu jäi veloitetuksi" \
+            "select count(*) from orders o join payments p on p.order_id = o.id where o.status = 'cancelled' and o.cancel_reason <> 'not_collected' and p.status = 'succeeded'"
+          check "peruttuja tilauksia, joiden varasto jäi vapauttamatta ennen keittiötä" \
+            "select count(*) from orders o join stock_reservations r on r.order_id = o.id where o.status = 'cancelled' and not r.released and not exists (select 1 from order_events e where e.order_id = o.id and e.type = 'status.preparing')"
+          check "kesken jääneitä tilauksia" \
+            "select count(*) from orders where status not in ('completed', 'cancelled')"
+          docker compose exec -T postgres psql -U pizza -d pizza -c "select status, cancel_reason, count(*) from orders group by 1, 2 order by 1, 2"
+          docker compose exec -T postgres psql -U pizza -d pizza -c "select * from bi_sales_daily"
+      - name: Lokit virhetilanteessa
+        if: failure()
+        run: docker compose --profile sim logs --no-color --tail 200
+
+  images:
+    name: Julkaise kuvat (GHCR)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, manifests, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pizza-server:latest
+            ghcr.io/${{ github.repository_owner }}/pizza-server:${{ github.sha }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pizza-web:latest
+            ghcr.io/${{ github.repository_owner }}/pizza-web:${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max

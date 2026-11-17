@@ -1,0 +1,50 @@
+# Temporal pienelle asennukselle (k3s, yksi solmu), sama Postgres kuin sovelluksella.
+# Chart: https://go.temporal.io/helm-charts, "temporal" (CI renderöi tämän chart-versiolla 1.8.0).
+#
+#   helm upgrade --install temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
+#     --namespace temporal --create-namespace -f deploy/temporal/values-vps.yaml --timeout 900s
+#
+# Vaatii Secretin "temporal-db" (avain "password") namespacessa temporal: ks. deploy/README.md.
+server:
+  replicaCount: 1
+  config:
+    persistence:
+      # HUOM: shardien määrää ei voi muuttaa asennuksen jälkeen. 512 riittää pitkälle
+      # (kymmeniä tuhansia samanaikaisia ketjuja); pienempi arvo säästäisi vain vähän muistia.
+      numHistoryShards: 512
+      datastores:
+        default:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal
+            connectAddr: "postgres.pizza.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: pizza
+            existingSecret: temporal-db
+            secretKey: password
+            maxConns: 20
+            maxIdleConns: 20
+        visibility:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal_visibility
+            connectAddr: "postgres.pizza.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: pizza
+            existingSecret: temporal-db
+            secretKey: password
+            maxConns: 10
+            maxIdleConns: 10
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 7d
+web:
+  replicaCount: 1

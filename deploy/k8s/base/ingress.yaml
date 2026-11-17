@@ -1,0 +1,18 @@
+# /api menee suoraan API:lle (SSE ei kulje nginx-välityksen läpi), kaikki muu UI:lle.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pizza
+spec:
+  rules:
+    - host: pizza.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: api, port: { name: http } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: web, port: { name: http } }

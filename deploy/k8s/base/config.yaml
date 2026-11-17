@@ -1,0 +1,18 @@
+# Ei-salaiset asetukset. Salaisuudet (DATABASE_URL, STAFF_TOKEN, Stripe-avaimet) tulevat
+# Secretistä "pizza-secrets", jota ei säilytetä versionhallinnassa: ks. deploy/README.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pizza-config
+data:
+  TEMPORAL_ADDRESS: temporal-frontend.temporal.svc.cluster.local:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: orders
+  PAYMENT_PROVIDER: sim
+  PUBLIC_URL: https://pizza.example.com
+  RESTAURANT_NAME: Pizzeria Kultainen Näyte
+  RESTAURANT_LAT: "60.1699"
+  RESTAURANT_LNG: "24.9384"
+  DELIVERY_RADIUS_KM: "8"
+  DELIVERY_FEE_CENTS: "390"
+  NODE_ENV: production

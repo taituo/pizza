@@ -1,0 +1,16 @@
+# Halpa VPS: yksi k3s-solmu, yksi Postgres klusterissa, kaikesta yksi replika.
+#   kubectl apply -k deploy/k8s/overlays/vps-k3s
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: pizza
+resources:
+  - ../../base
+components:
+  - ../../components/postgres
+patches:
+  - target: { kind: Deployment, name: "api|web" }
+    patch: |
+      - { op: replace, path: /spec/replicas, value: 1 }
+  - target: { kind: Ingress, name: pizza }
+    patch: |
+      - { op: add, path: /spec/ingressClassName, value: traefik }
