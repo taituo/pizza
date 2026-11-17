@@ -259,7 +259,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
       const body = res.json();
       expect(body.products.find((p: { id: string }) => p.id === 'margherita')).toMatchObject({
         priceCents: 1090,
-        removable: expect.arrayContaining([{ id: 'basil', name: 'Basilika' }]),
+        removable: expect.arrayContaining([{ id: 'basil', name: 'Basil' }]),
       });
     });
 
