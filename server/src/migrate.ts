@@ -10,7 +10,7 @@ export async function migrate(databaseUrl: string, log: (msg: string) => void = 
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    // Advisory lock: usea samaan aikaan käynnistyvä podi ei aja migraatioita päällekkäin.
+    // Advisory lock: several pods starting at once do not run migrations on top of each other.
     await client.query('select pg_advisory_lock($1)', [LOCK_KEY]);
     await client.query(
       `create table if not exists schema_migrations (

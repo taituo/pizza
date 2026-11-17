@@ -1,9 +1,9 @@
 import type { PaymentProvider, PaymentRequest } from './types';
 
 /**
- * Simuloitu maksupalvelu. Maksun "suoritus" tapahtuu API:n /pay-päätepisteessä.
- * failRate > 0 saa kutsut epäonnistumaan satunnaisesti, jolloin näkee Temporalin
- * uudelleenyritykset ilman, että mitään veloitetaan kahdesti.
+ * Simulated payment provider. The payment is "completed" at the API's /pay endpoint.
+ * failRate > 0 makes calls fail at random, which shows Temporal's retries
+ * without anything being charged twice.
  */
 export class SimPaymentProvider implements PaymentProvider {
   readonly name = 'sim' as const;
@@ -12,7 +12,7 @@ export class SimPaymentProvider implements PaymentProvider {
 
   private maybeFail(op: string): void {
     if (this.failRate > 0 && Math.random() < this.failRate) {
-      throw new Error(`Simuloitu maksupalvelun häiriö (${op})`);
+      throw new Error(`Simulated payment provider outage (${op})`);
     }
   }
 

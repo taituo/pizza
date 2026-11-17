@@ -1,16 +1,16 @@
-# Temporal pienelle asennukselle (k3s, yksi solmu), sama Postgres kuin sovelluksella.
-# Chart: https://go.temporal.io/helm-charts, "temporal" (CI renderöi tämän chart-versiolla 1.8.0).
+# Temporal for a small install (k3s, one node), same Postgres as the app.
+# Chart: https://go.temporal.io/helm-charts, "temporal" (CI renders this with chart version 1.8.0).
 #
 #   helm upgrade --install temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
 #     --namespace temporal --create-namespace -f deploy/temporal/values-vps.yaml --timeout 900s
 #
-# Vaatii Secretin "temporal-db" (avain "password") namespacessa temporal: ks. deploy/README.md.
+# Requires the Secret "temporal-db" (key "password") in the temporal namespace: see deploy/README.md.
 server:
   replicaCount: 1
   config:
     persistence:
-      # HUOM: shardien määrää ei voi muuttaa asennuksen jälkeen. 512 riittää pitkälle
-      # (kymmeniä tuhansia samanaikaisia ketjuja); pienempi arvo säästäisi vain vähän muistia.
+      # NOTE: the shard count cannot be changed after install. 512 goes a long way
+      # (tens of thousands of concurrent workflows); a smaller value would save only a little memory.
       numHistoryShards: 512
       datastores:
         default:

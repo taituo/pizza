@@ -14,7 +14,7 @@ spec:
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000 # kuvan node-käyttäjä
+        runAsUser: 1000 # the image's node user
         runAsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
       containers:

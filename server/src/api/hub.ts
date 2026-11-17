@@ -3,8 +3,8 @@ import { Client } from 'pg';
 import { EVENTS_CHANNEL, type EventNotification } from '../db';
 
 /**
- * Reaaliaikaväylä: yksi Postgres LISTEN -yhteys per API-prosessi, josta tapahtumat
- * jaetaan SSE-tilaajille. Erillistä viestijonoa ei tarvita, ja API-replikoita voi olla monta.
+ * Realtime bus: one Postgres LISTEN connection per API process, fanned out to
+ * SSE subscribers. No separate message queue is needed, and there can be many API replicas.
  */
 export class EventHub {
   private readonly orderSubs = new Map<string, Set<ServerResponse>>();
@@ -48,7 +48,7 @@ export class EventHub {
     try {
       await client.connect();
       await client.query(`listen ${EVENTS_CHANNEL}`);
-      // Yhteyskatkon aikana tapahtumia on voinut jäädä väliin: pyydä kaikkia hakemaan tila uudelleen.
+      // Events may have been missed during the outage: ask everyone to refetch their state.
       this.broadcastRaw(`event: resync\ndata: {}\n\n`);
     } catch (err) {
       reconnect((err as Error).message);

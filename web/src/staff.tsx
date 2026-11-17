@@ -6,7 +6,7 @@ const session = store('session');
 const StaffContext = createContext<string>('');
 export const useStaffToken = (): string => useContext(StaffContext);
 
-/** Henkilökunnan näkymät vaativat tunnisteen. Se säilyy vain tämän välilehden ajan. */
+/** Staff views require a token. It is kept only for the lifetime of this tab. */
 export function StaffGate({ title, children }: { title: string; children: ReactNode }) {
   const [token, setToken] = useState(() => session.get('staffToken') ?? '');
   const [input, setInput] = useState('');
@@ -22,7 +22,7 @@ export function StaffGate({ title, children }: { title: string; children: ReactN
       session.set('staffToken', input);
       setToken(input);
     } catch (err) {
-      setError((err as ApiError).status === 401 ? 'Tunniste ei kelpaa.' : (err as Error).message);
+      setError((err as ApiError).status === 401 ? 'The token is not valid.' : (err as Error).message);
     } finally {
       setChecking(false);
     }
@@ -34,7 +34,7 @@ export function StaffGate({ title, children }: { title: string; children: ReactN
         <h1>{title}</h1>
         <form className="card" onSubmit={submit}>
           <label className="field">
-            Henkilökunnan tunniste
+            Staff token
             <input type="password" value={input} onChange={(e) => setInput(e.target.value)} required autoFocus />
           </label>
           {error && (
@@ -43,9 +43,9 @@ export function StaffGate({ title, children }: { title: string; children: ReactN
             </p>
           )}
           <button className="btn primary" disabled={checking}>
-            {checking ? 'Tarkistetaan…' : 'Kirjaudu'}
+            {checking ? 'Checking…' : 'Sign in'}
           </button>
-          <p className="small muted">Kehitysympäristössä tunniste on dev-staff-token.</p>
+          <p className="small muted">In development the token is dev-staff-token.</p>
         </form>
       </main>
     );
@@ -53,7 +53,7 @@ export function StaffGate({ title, children }: { title: string; children: ReactN
   return <StaffContext.Provider value={token}>{children}</StaffContext.Provider>;
 }
 
-/** Aktiiviset tilaukset reaaliajassa: lista haetaan uudelleen tapahtumista, sijainnit päivitetään paikallisesti. */
+/** Active orders in real time: the list is refetched on events, locations are updated locally. */
 export function useStaffOrders(): {
   orders: Order[] | null;
   restaurant: (LatLng & { name: string }) | null;
@@ -80,7 +80,7 @@ export function useStaffOrders(): {
   }, [token]);
   useEffect(reload, [reload]);
 
-  // Ruuhkassa tapahtumia tulee tiheään: yksi haku riittää kattamaan monta.
+  // Under load events arrive densely: one fetch is enough to cover many.
   const reloadSoon = useCallback(() => {
     if (pending.current !== null) return;
     pending.current = window.setTimeout(() => {
@@ -116,7 +116,7 @@ export function useStaffOrders(): {
       try {
         await api(path, { method: 'POST', body, staffToken: token });
       } catch (e) {
-        // 409 = joku muu ehti ensin tai tila muuttui; lista päivittyy ja näyttää nykytilan.
+        // 409 = someone else got there first or the status changed; the list refreshes and shows the current state.
         setActionError((e as Error).message);
         reload();
       }

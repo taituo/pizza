@@ -1,6 +1,6 @@
-# GitOps: Argo CD pitää klusterin samana kuin tämän repon main-haara.
+# GitOps: Argo CD keeps the cluster identical to this repo's main branch.
 #   kubectl apply -n argocd -f deploy/argocd/applications.yaml
-# Vaihda overlay (vps-k3s / cloud) ja values-tiedosto ympäristön mukaan.
+# Switch the overlay (vps-k3s / cloud) and the values file per environment.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

@@ -1,5 +1,5 @@
-# CPU-pohjainen skaalaus on yksinkertainen lähtötaso. Workereille osuvampi signaali on
-# Temporalin task queue -jonon pituus (KEDA:n temporal-skaalain); se on luonteva seuraava askel.
+# CPU-based scaling is a simple baseline. For workers a more accurate signal is the
+# Temporal task queue backlog (KEDA's temporal scaler); that is the natural next step.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

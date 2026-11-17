@@ -1,10 +1,10 @@
 /**
- * Tilausketjun testit oikeaa Temporal-palvelinta vasten (kehityspalvelin, ladataan automaattisesti).
- * Activityt on korvattu muistinvaraisilla, joten testi kohdistuu ketjun logiikkaan:
- * järjestykseen, kompensaatioihin, aikakatkaisuihin ja signaalien vaihekohtaiseen hyväksyntään.
+ * Order workflow tests against a real Temporal server (dev server, downloaded automatically).
+ * Activities are replaced with in-memory ones, so the tests target the workflow's logic:
+ * ordering, compensations, timeouts and stage-specific acceptance of signals.
  *
- * TEMPORAL_CLI_PATH: käytä valmiiksi asennettua temporal-binääriä.
- * SKIP_TEMPORAL_TESTS=1: ohita (ympäristö, jossa palvelinta ei voi ladata).
+ * TEMPORAL_CLI_PATH: use an already installed temporal binary.
+ * SKIP_TEMPORAL_TESTS=1: skip (an environment where the server cannot be downloaded).
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -224,13 +224,13 @@ describe.skipIf(skip)('orderWorkflow', () => {
   it('ignores signals that arrive in the wrong stage', async () => {
     const { result, calls } = await run({ timeouts: { kitchenAcceptMs: 400 } }, async (wf, until) => {
       await until('awaiting_payment');
-      // Keittiön ja kuljettajan signaalit ennen maksua eivät saa ohittaa vaiheita.
+      // Kitchen and driver signals before payment must not skip stages.
       await wf.signal(kitchenDecisionSignal, { accepted: true });
       await wf.signal(kitchenReadySignal);
       await wf.signal(driverAssignedSignal, { driverId: 'd1' });
       await wf.signal(handedOverSignal);
       await wf.signal(paymentResultSignal, { status: 'succeeded' });
-      await wf.signal(paymentResultSignal, { status: 'failed' }); // myöhästynyt kaksoiswebhook
+      await wf.signal(paymentResultSignal, { status: 'failed' }); // late duplicate webhook
     });
     expect(calls).toContain('→paid');
     expect(calls).not.toContain('→preparing');
@@ -238,8 +238,8 @@ describe.skipIf(skip)('orderWorkflow', () => {
   });
 
   it('accepts a signal sent the instant the new status becomes visible', async () => {
-    // Regressio: kuljettaja ottaa tilauksen heti, kun "ready" näkyy tietokannassa. Signaali päätyy
-    // historiaan ennen tilasiirtymän valmistumista ja käsitellään samassa erässä sen kanssa.
+    // Regression: a driver takes the order the moment "ready" shows in the database. The signal lands
+    // in history before the transition completes and is processed in the same batch with it.
     const calls: string[] = [];
     const { result } = await run(
       {
@@ -276,7 +276,7 @@ describe.skipIf(skip)('orderWorkflow', () => {
         overrides: {
           startPayment: async () => {
             attempts++;
-            if (attempts < 3) throw new Error('maksupalvelu ei vastaa');
+            if (attempts < 3) throw new Error('payment provider is down');
           },
         },
       },

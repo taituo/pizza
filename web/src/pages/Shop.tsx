@@ -72,11 +72,11 @@ export function Shop() {
 
   const problem =
     cart.length === 0
-      ? 'Lisää ensin jotain ostoskoriin.'
+      ? 'Add something to the cart first.'
       : fulfillment === 'delivery' && !spot
-        ? 'Merkitse toimituspaikka kartalta.'
+        ? 'Mark the delivery location on the map.'
         : tooFar
-          ? `Toimituspaikka on alueemme ulkopuolella (yli ${menu?.deliveryRadiusKm} km).`
+          ? `The delivery location is outside our area (over ${menu?.deliveryRadiusKm} km).`
           : null;
 
   const submit = async (e: FormEvent) => {
@@ -106,15 +106,15 @@ export function Shop() {
     return (
       <main className="page narrow">
         <div className="notice error" role="alert">
-          <p>Ruokalistaa ei saatu ladattua. {loadError}</p>
+          <p>Could not load the menu. {loadError}</p>
           <button className="btn" onClick={loadMenu}>
-            Yritä uudelleen
+            Try again
           </button>
         </div>
       </main>
     );
   }
-  if (!menu) return <main className="page narrow muted">Ladataan ruokalistaa…</main>;
+  if (!menu) return <main className="page narrow muted">Loading the menu…</main>;
 
   const pizzas = menu.products.filter((p) => p.category === 'pizza');
   const drinks = menu.products.filter((p) => p.category === 'drink');
@@ -124,25 +124,25 @@ export function Shop() {
       <section>
         <header className="hero">
           <p className="eyebrow">{menu.restaurant.name}</p>
-          <h1>Uunista ovelle, ja näet koko matkan.</h1>
+          <h1>From the oven to your door, and you see the whole trip.</h1>
           <p className="lede">
-            Valitse pizzat, maksa ja seuraa tilaustasi keittiöstä kartalle asti. Kotiinkuljetus {money(menu.deliveryFeeCents)},{' '}
-            {menu.deliveryRadiusKm} km säteellä.
+            Pick your pizzas, pay and follow your order from the kitchen to the map. Delivery {money(menu.deliveryFeeCents)},{' '}
+            within {menu.deliveryRadiusKm} km.
           </p>
           {lastOrder && (
             <Link className="last-order" to={`/order/${lastOrder.id}?token=${encodeURIComponent(lastOrder.token)}`}>
-              Jatka edellisen tilauksesi seurantaa →
+              Continue tracking your previous order →
             </Link>
           )}
         </header>
 
-        <h2>Pizzat</h2>
+        <h2>Pizzas</h2>
         <div className="menu-grid">
           {pizzas.map((p) => (
             <ProductCard key={p.id} product={p} onAdd={add} />
           ))}
         </div>
-        <h2>Juomat</h2>
+        <h2>Drinks</h2>
         <div className="menu-grid">
           {drinks.map((p) => (
             <ProductCard key={p.id} product={p} onAdd={add} />
@@ -150,11 +150,11 @@ export function Shop() {
         </div>
       </section>
 
-      <aside className="cart" aria-label="Ostoskori ja tilaus">
+      <aside className="cart" aria-label="Cart and order">
         <form onSubmit={submit}>
-          <h2>Tilauksesi</h2>
+          <h2>Your order</h2>
           {cart.length === 0 ? (
-            <p className="muted">Ostoskori on tyhjä. Lisää pizza ruokalistalta.</p>
+            <p className="muted">The cart is empty. Add a pizza from the menu.</p>
           ) : (
             <ul className="cart-lines">
               {cart.map((l) => (
@@ -162,20 +162,20 @@ export function Shop() {
                   <div>
                     <strong>
                       {l.product.name}
-                      {l.size === 'large' && ' (iso)'}
+                      {l.size === 'large' && ' (large)'}
                     </strong>
                     {l.without.length > 0 && (
                       <span className="muted small">
-                        ilman: {l.without.map((id) => l.product.removable.find((r) => r.id === id)?.name ?? id).join(', ')}
+                        without: {l.without.map((id) => l.product.removable.find((r) => r.id === id)?.name ?? id).join(', ')}
                       </span>
                     )}
                   </div>
                   <div className="qty">
-                    <button type="button" onClick={() => change(l.key, -1)} aria-label={`Vähennä: ${l.product.name}`}>
+                    <button type="button" onClick={() => change(l.key, -1)} aria-label={`Remove one: ${l.product.name}`}>
                       −
                     </button>
-                    <span aria-label="määrä">{l.quantity}</span>
-                    <button type="button" onClick={() => change(l.key, 1)} aria-label={`Lisää: ${l.product.name}`}>
+                    <span aria-label="quantity">{l.quantity}</span>
+                    <button type="button" onClick={() => change(l.key, 1)} aria-label={`Add one: ${l.product.name}`}>
                       +
                     </button>
                   </div>
@@ -186,35 +186,35 @@ export function Shop() {
           )}
 
           <fieldset className="segmented">
-            <legend>Toimitustapa</legend>
+            <legend>Fulfilment</legend>
             <label>
               <input type="radio" name="f" checked={fulfillment === 'delivery'} onChange={() => setFulfillment('delivery')} />
-              <span>Kotiinkuljetus</span>
+              <span>Delivery</span>
             </label>
             <label>
               <input type="radio" name="f" checked={fulfillment === 'pickup'} onChange={() => setFulfillment('pickup')} />
-              <span>Nouto</span>
+              <span>Pickup</span>
             </label>
           </fieldset>
 
           <label className="field">
-            Nimi
+            Name
             <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} autoComplete="name" />
           </label>
           <label className="field">
-            Puhelin
+            Phone
             <input value={phone} onChange={(e) => setPhone(e.target.value)} required minLength={5} maxLength={30} type="tel" autoComplete="tel" />
           </label>
 
           {fulfillment === 'delivery' && (
             <>
               <label className="field">
-                Osoite ja ovikoodi
+                Address and door code
                 <input value={address} onChange={(e) => setAddress(e.target.value)} required minLength={3} maxLength={300} autoComplete="street-address" />
               </label>
-              <p className="small muted">Napauta karttaa toimituspaikan kohdalta, niin kuljettaja löytää perille.</p>
+              <p className="small muted">Tap the map at the delivery location so the driver can find you.</p>
               <MapView
-                label="Valitse toimituspaikka kartalta"
+                label="Choose the delivery location on the map"
                 center={menu.restaurant}
                 radiusKm={menu.deliveryRadiusKm}
                 height={220}
@@ -222,7 +222,7 @@ export function Shop() {
                 onPick={setSpot}
                 markers={[
                   { id: 'r', kind: 'restaurant', label: menu.restaurant.name, ...menu.restaurant },
-                  ...(spot ? [{ id: 'c', kind: 'customer' as const, label: 'Toimituspaikka', ...spot }] : []),
+                  ...(spot ? [{ id: 'c', kind: 'customer' as const, label: 'Delivery location', ...spot }] : []),
                 ]}
               />
             </>
@@ -230,17 +230,17 @@ export function Shop() {
 
           <dl className="totals">
             <div>
-              <dt>Tuotteet</dt>
+              <dt>Items</dt>
               <dd>{money(subtotal)}</dd>
             </div>
             {fulfillment === 'delivery' && (
               <div>
-                <dt>Kotiinkuljetus</dt>
+                <dt>Delivery</dt>
                 <dd>{money(fee)}</dd>
               </div>
             )}
             <div className="grand">
-              <dt>Yhteensä</dt>
+              <dt>Total</dt>
               <dd>{money(subtotal + fee)}</dd>
             </div>
           </dl>
@@ -251,7 +251,7 @@ export function Shop() {
             </p>
           )}
           <button className="btn primary wide" type="submit" disabled={Boolean(problem) || submitting}>
-            {submitting ? 'Lähetetään…' : 'Tilaa ja siirry maksamaan'}
+            {submitting ? 'Sending…' : 'Order and go to payment'}
           </button>
           {problem && <p className="small muted hint">{problem}</p>}
         </form>
@@ -277,17 +277,17 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
       {product.priceLargeCents !== null && (
         <div className="chips" role="group" aria-label={`${product.name}: koko`}>
           <button type="button" className={size === 'normal' ? 'chip on' : 'chip'} aria-pressed={size === 'normal'} onClick={() => setSize('normal')}>
-            Normaali
+            Normal
           </button>
           <button type="button" className={size === 'large' ? 'chip on' : 'chip'} aria-pressed={size === 'large'} onClick={() => setSize('large')}>
-            Iso
+            Large
           </button>
         </div>
       )}
       {product.removable.length > 0 && (
         <>
           <button type="button" className="link" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-            {without.length > 0 ? `Jätetään pois: ${without.length}` : 'Jätä jotain pois'}
+            {without.length > 0 ? `Leaving out: ${without.length}` : 'Leave something out'}
           </button>
           {open && (
             <div className="chips">
@@ -299,7 +299,7 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
                   aria-pressed={without.includes(r.id)}
                   onClick={() => toggle(r.id)}
                 >
-                  {without.includes(r.id) ? `ei ${r.name.toLowerCase()}` : r.name}
+                  {without.includes(r.id) ? `no ${r.name.toLowerCase()}` : r.name}
                 </button>
               ))}
             </div>
@@ -315,7 +315,7 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
           setOpen(false);
         }}
       >
-        Lisää koriin
+        Add to cart
       </button>
     </article>
   );

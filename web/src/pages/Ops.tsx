@@ -7,13 +7,13 @@ const FLOW: OrderStatus[] = ['awaiting_payment', 'paid', 'preparing', 'ready', '
 
 export function Ops() {
   return (
-    <StaffGate title="Tilannekuva">
+    <StaffGate title="Overview">
       <OpsView />
     </StaffGate>
   );
 }
 
-/** Operaattorin näkymä: koko toimitusketju yhdellä silmäyksellä ja kaikki kuljetukset kartalla. */
+/** Operator view: the whole fulfilment chain at a glance and every delivery on the map. */
 function OpsView() {
   const { orders, restaurant, error, reload, act, actionError } = useStaffOrders();
 
@@ -21,15 +21,15 @@ function OpsView() {
     return (
       <main className="page">
         <div className="notice error" role="alert">
-          <p>Tilannekuvaa ei saatu ladattua. {error}</p>
+          <p>Could not load the overview. {error}</p>
           <button className="btn" onClick={reload}>
-            Yritä uudelleen
+            Try again
           </button>
         </div>
       </main>
     );
   }
-  if (!orders || !restaurant) return <main className="page muted">Ladataan tilannekuvaa…</main>;
+  if (!orders || !restaurant) return <main className="page muted">Loading the overview…</main>;
 
   const markers: MapMarker[] = [{ id: 'r', kind: 'restaurant', label: restaurant.name, ...restaurant }];
   for (const o of orders) {
@@ -45,15 +45,15 @@ function OpsView() {
   return (
     <main className="page">
       <header className="board-head">
-        <h1>Tilannekuva</h1>
-        <p className="muted">{orders.length} aktiivista tilausta</p>
+        <h1>Overview</h1>
+        <p className="muted">{orders.length} active orders</p>
       </header>
       {actionError && (
         <p className="notice error" role="alert">
           {actionError}
         </p>
       )}
-      <ul className="pipeline" aria-label="Tilaukset vaiheittain">
+      <ul className="pipeline" aria-label="Orders by stage">
         {FLOW.map((s) => (
           <li key={s}>
             <strong>{orders.filter((o) => o.status === s).length}</strong>
@@ -62,20 +62,20 @@ function OpsView() {
         ))}
       </ul>
 
-      <MapView label="Kaikki kuljetukset kartalla" center={restaurant} markers={markers} height={420} />
+      <MapView label="All deliveries on the map" center={restaurant} markers={markers} height={420} />
 
       <section className="card">
-        <h2>Jumissa yli 15 min</h2>
+        <h2>Stuck for over 15 min</h2>
         {slow.length === 0 ? (
-          <p className="muted small">Kaikki etenee ajallaan.</p>
+          <p className="muted small">Everything is on schedule.</p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Tilaus</th>
-                <th>Vaihe</th>
-                <th>Kesto</th>
-                <th>Asiakas</th>
+                <th>Order</th>
+                <th>Stage</th>
+                <th>Duration</th>
+                <th>Customer</th>
                 <th />
               </tr>
             </thead>
@@ -92,12 +92,12 @@ function OpsView() {
                     <button
                       className="btn quiet small"
                       onClick={() => {
-                        if (window.confirm(`Perutaanko tilaus #${o.id.slice(0, 6)}? Asiakkaan maksu palautetaan.`)) {
+                        if (window.confirm(`Cancel order #${o.id.slice(0, 6)}? The customer's payment will be refunded.`)) {
                           void act(`/api/staff/orders/${o.id}/cancel`);
                         }
                       }}
                     >
-                      Peru ja hyvitä
+                      Cancel and refund
                     </button>
                   </td>
                 </tr>

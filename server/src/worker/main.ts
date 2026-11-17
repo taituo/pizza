@@ -23,13 +23,13 @@ async function main(): Promise<void> {
     activities: createActivities({ pool, payments: createPaymentProvider(cfg), cfg }),
     maxConcurrentActivityTaskExecutions: cfg.workerMaxConcurrentActivities,
     maxConcurrentWorkflowTaskExecutions: cfg.workerMaxConcurrentWorkflowTasks,
-    // SIGTERM (esim. Kubernetesin rolling update): keskeneräiset activityt saavat hetken valmistua.
+    // SIGTERM (e.g. a Kubernetes rolling update): in-flight activities get a moment to finish.
     shutdownGraceTime: '20 seconds',
   });
 
   console.log(`[worker] polling task queue "${cfg.taskQueue}" at ${cfg.temporalAddress}`);
   try {
-    await worker.run(); // palaa, kun workeri on sammutettu siististi (SIGTERM/SIGINT)
+    await worker.run(); // returns once the worker has shut down cleanly (SIGTERM/SIGINT)
   } finally {
     await connection.close();
     await pool.end();

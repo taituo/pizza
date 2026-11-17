@@ -142,7 +142,7 @@ a {
   font-weight: 600;
 }
 
-/* --- kortit ja ruokalista --- */
+/* --- cards and menu --- */
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -205,7 +205,7 @@ a {
   color: var(--muted);
 }
 
-/* --- painikkeet ja lomakkeet --- */
+/* --- buttons and forms --- */
 .btn {
   font: inherit;
   font-weight: 600;
@@ -348,7 +348,7 @@ a {
   margin-top: 0.5rem;
 }
 
-/* --- ostoskori --- */
+/* --- cart --- */
 .cart {
   position: sticky;
   top: 4.5rem;
@@ -419,7 +419,7 @@ a {
   padding-top: 0.5rem;
 }
 
-/* --- tilauksen seuranta --- */
+/* --- order tracking --- */
 .order-head h1 {
   font-size: clamp(1.6rem, 4vw, 2.3rem);
 }
@@ -499,7 +499,7 @@ a {
   border-color: var(--basil);
 }
 
-/* --- henkilökunnan näkymät --- */
+/* --- staff views --- */
 .board-head {
   display: flex;
   align-items: baseline;

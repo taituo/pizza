@@ -1,7 +1,7 @@
 /**
- * Activityjen ja API:n testit oikeaa Postgresia vasten. Ajetaan, kun TEST_DATABASE_URL on asetettu
- * (CI:ssä aina). Olennaisin väite: mikään activity ei tee sivuvaikutustaan kahdesti,
- * vaikka Temporal ajaisi sen uudelleen.
+ * Activity and API tests against a real Postgres. They run when TEST_DATABASE_URL is set
+ * (always in CI). The key claim: no activity performs its side effect twice,
+ * even if Temporal re-runs it.
  */
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
@@ -35,7 +35,7 @@ class CountingPayments implements PaymentProvider {
   async refund() {
     if (this.failNextRefund) {
       this.failNextRefund = false;
-      throw new Error('maksupalvelu ei vastaa');
+      throw new Error('payment provider is down');
     }
     this.refunds++;
   }
@@ -87,7 +87,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
     const id = randomUUID();
     await pool.query(
       `insert into orders (id, access_token, fulfillment, customer_name, phone, address, lat, lng, items)
-       values ($1, 'tok', $2, 'Testi', '0401234567', $3, $4, $5, $6)`,
+       values ($1, 'tok', $2, 'Test', '0401234567', $3, $4, $5, $6)`,
       [
         id,
         fulfillment,
@@ -108,7 +108,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
     await pool.query(`insert into ingredients (id, name, stock) values ('test-scarce', 'Testiharvinaisuus', 1)
                       on conflict (id) do update set stock = 1`);
     await pool.query(`insert into products (id, name, category, price_cents, active)
-                      values ('test-scarce-pizza', 'Harvinainen', 'pizza', 2000, true) on conflict do nothing`);
+                      values ('test-scarce-pizza', 'Scarce', 'pizza', 2000, true) on conflict do nothing`);
     await pool.query(`insert into product_ingredients (product_id, ingredient_id, qty, removable)
                       values ('test-scarce-pizza', 'test-scarce', 1, false) on conflict do nothing`);
   });
@@ -171,7 +171,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
       expect(failed).toHaveLength(1);
       expect(failed[0]!.reason).toMatchObject({ type: 'OutOfStock', nonRetryable: true });
       expect(await stock('test-scarce')).toBe(0);
-      expect(await stock('dough')).toBe(doughBefore - 1); // hävinneen tilauksen taikina palautui rollbackissa
+      expect(await stock('dough')).toBe(doughBefore - 1); // the losing order's dough came back in the rollback
     });
 
     it('opens one payment per order and refunds a paid order exactly once', async () => {
@@ -188,7 +188,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
 
       const refundsBefore = payments.refunds;
       payments.failNextRefund = true;
-      await expect(acts.refundPayment(id)).rejects.toThrow('maksupalvelu ei vastaa'); // Temporal yrittäisi uudelleen
+      await expect(acts.refundPayment(id)).rejects.toThrow('payment provider is down'); // Temporal would retry
       expect((await pool.query('select status from payments where order_id = $1', [id])).rows[0].status).toBe('succeeded');
       await acts.refundPayment(id);
       await acts.refundPayment(id);
@@ -259,7 +259,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
       const body = res.json();
       expect(body.products.find((p: { id: string }) => p.id === 'margherita')).toMatchObject({
         priceCents: 1090,
-        removable: expect.arrayContaining([{ id: 'basil', name: 'Basilika' }]),
+        removable: expect.arrayContaining([{ id: 'basil', name: 'Basil' }]),
       });
     });
 
@@ -319,19 +319,19 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
       expect((await kitchen('accept', {} as never)).statusCode).toBe(401);
       expect((await kitchen('accept', { 'x-staff-token': 'guess' })).statusCode).toBe(401);
       expect((await app.inject({ method: 'GET', url: '/api/staff/orders' })).statusCode).toBe(401);
-      expect((await kitchen('accept')).statusCode).toBe(409); // ei vielä maksettu
+      expect((await kitchen('accept')).statusCode).toBe(409); // not paid yet
 
       await pool.query(`update orders set status = 'paid' where id = $1`, [id]);
       expect((await kitchen('ready')).statusCode).toBe(409);
       expect((await kitchen('accept')).statusCode).toBe(202);
       expect(runtime.signals).toContain(`kitchen:true:${id}`);
 
-      // Asiakas ei voi perua, kun keittiö on aloittanut.
+      // The customer cannot cancel once the kitchen has started.
       await pool.query(`update orders set status = 'preparing' where id = $1`, [id]);
       const cancel = await app.inject({ method: 'POST', url: `/api/orders/${id}/cancel?token=${accessToken}` });
       expect(cancel.statusCode).toBe(409);
 
-      // Päättynyt ketju → 409 eikä 500.
+      // Finished workflow → 409, not 500.
       const opCancel = await app.inject({ method: 'POST', url: `/api/staff/orders/${id}/cancel`, headers: staff });
       expect(opCancel.statusCode).toBe(409);
     });
@@ -348,7 +348,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
       const position = () =>
         app.inject({ method: 'POST', url: `/api/staff/orders/${id}/location`, payload: { lat: 60.17, lng: 24.94 }, headers: staff });
 
-      expect((await assign('d1')).statusCode).toBe(409); // ei vielä valmis
+      expect((await assign('d1')).statusCode).toBe(409); // not ready yet
       await pool.query(`update orders set status = 'ready' where id = $1`, [id]);
       const [a, b] = await Promise.all([assign('d1'), assign('d2')]);
       expect([a.statusCode, b.statusCode].sort()).toEqual([202, 409]);
@@ -364,7 +364,7 @@ describe.skipIf(!databaseUrl)('with Postgres', () => {
     it('simulated pay marks the payment once and re-sends the signal on retry', async () => {
       const { id, accessToken } = (await app.inject({ method: 'POST', url: '/api/orders', payload: order })).json();
       const pay = () => app.inject({ method: 'POST', url: `/api/orders/${id}/pay?token=${accessToken}` });
-      expect((await pay()).statusCode).toBe(409); // maksua ei ole vielä avattu
+      expect((await pay()).statusCode).toBe(409); // the payment has not been opened yet
 
       const a = createActivities({ pool, payments: new CountingPayments(), cfg });
       await a.validateAndPrice(id);

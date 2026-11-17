@@ -38,8 +38,8 @@ export interface EventNotification {
 }
 
 /**
- * Kirjaa liiketoimintatapahtuman (BI) ja herättää reaaliaikaiset kuuntelijat (SSE).
- * NOTIFY toimitetaan vasta commitissa, joten kuuntelija ei näe keskeneräistä tilaa.
+ * Records a business event (BI) and wakes the realtime listeners (SSE).
+ * NOTIFY is delivered only at commit, so a listener never sees unfinished state.
  */
 export async function recordEvent(
   q: Queryable,

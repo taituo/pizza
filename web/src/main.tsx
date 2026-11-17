@@ -13,12 +13,12 @@ function App() {
     <BrowserRouter>
       <nav className="topbar">
         <Link to="/" className="brand">
-          <span aria-hidden="true">🍕</span> Kultainen Näyte
+          <span aria-hidden="true">🍕</span> Golden Sample
         </Link>
         <div className="staff-links">
-          <NavLink to="/kitchen">Keittiö</NavLink>
-          <NavLink to="/driver">Kuljettaja</NavLink>
-          <NavLink to="/ops">Tilannekuva</NavLink>
+          <NavLink to="/kitchen">Kitchen</NavLink>
+          <NavLink to="/driver">Driver</NavLink>
+          <NavLink to="/ops">Overview</NavLink>
         </div>
       </nav>
       <Routes>
@@ -31,8 +31,8 @@ function App() {
           path="*"
           element={
             <main className="page narrow">
-              <h1>Sivua ei löytynyt</h1>
-              <Link to="/">Takaisin ruokalistalle</Link>
+              <h1>Page not found</h1>
+              <Link to="/">Back to the menu</Link>
             </main>
           }
         />

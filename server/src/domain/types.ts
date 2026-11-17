@@ -1,4 +1,4 @@
-// Tämä tiedosto ei saa tuoda mitään epädeterminististä: workflow-koodi käyttää sitä.
+// This file must not import anything non-deterministic: workflow code uses it.
 
 export const ORDER_STATUSES = [
   'created',
@@ -19,13 +19,13 @@ export interface OrderItemRequest {
   productId: string;
   size: Size;
   quantity: number;
-  /** Ainesosat, jotka asiakas haluaa jättää pois. */
+  /** Ingredients the customer wants left out. */
   without: string[];
 }
 
 export interface PricedItem extends OrderItemRequest {
   name: string;
-  /** Poisjätettyjen ainesosien nimet näyttöä varten. */
+  /** Names of the left-out ingredients, for display. */
   withoutNames: string[];
   unitPriceCents: number;
   lineTotalCents: number;

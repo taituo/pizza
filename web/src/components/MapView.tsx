@@ -23,10 +23,10 @@ function icon(kind: MapMarker['kind']): L.DivIcon {
 interface Props {
   center: LatLng;
   markers: MapMarker[];
-  /** Säde kilometreinä keskipisteen ympärillä (toimitusalue). */
+  /** Radius in kilometres around the centre (delivery area). */
   radiusKm?: number;
   onPick?: (p: LatLng) => void;
-  /** Sovita näkymä merkkeihin aina, kun niiden joukko muuttuu. */
+  /** Fit the view to the markers whenever the set of markers changes. */
   fit?: boolean;
   height?: number;
   label: string;
@@ -56,7 +56,7 @@ export function MapView({ center, markers, radiusKm, onPick, fit = true, height 
       map.current = null;
       markersNow.clear();
     };
-    // Kartta luodaan kerran; keskipisteen muutokset hoidetaan merkkien kautta.
+    // The map is created once; centre changes are handled through the markers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -85,7 +85,7 @@ export function MapView({ center, markers, radiusKm, onPick, fit = true, height 
       seen.add(mk.id);
       const existing = live.current.get(mk.id);
       if (existing) {
-        existing.setLatLng([mk.lat, mk.lng]); // liikkuva kuljettaja: siirretään, ei luoda uudelleen
+        existing.setLatLng([mk.lat, mk.lng]); // moving driver: move it, do not recreate
       } else {
         const created = L.marker([mk.lat, mk.lng], { icon: icon(mk.kind), title: mk.label, alt: mk.label ?? mk.kind });
         if (mk.label) created.bindTooltip(mk.label);
@@ -106,7 +106,7 @@ export function MapView({ center, markers, radiusKm, onPick, fit = true, height 
     if (!m || !fit || markers.length === 0) return;
     if (markers.length === 1) m.setView([markers[0]!.lat, markers[0]!.lng], 14);
     else m.fitBounds(L.latLngBounds(markers.map((x) => [x.lat, x.lng] as [number, number])).pad(0.25));
-    // Sovitetaan vain, kun merkkien joukko muuttuu, ei jokaisella sijaintipäivityksellä.
+    // Fit only when the set of markers changes, not on every location update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, fit]);
 

@@ -2,7 +2,7 @@
   "name": "@pizza/server",
   "private": true,
   "version": "0.1.0",
-  "description": "Ohut API, Temporal-workerit ja simulaattorit samassa modulaarisessa paketissa (eri käynnistyskomennot).",
+  "description": "Thin API, Temporal workers and simulators in one modular package (different start commands).",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

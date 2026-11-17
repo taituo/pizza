@@ -1,12 +1,12 @@
-# Temporal pilviasennukselle (EKS/GKE) hallitun Postgresin päällä. Vaihtoehto: Temporal Cloud,
-# jolloin tätä chartia ei asenneta lainkaan ja sovellukselle annetaan TEMPORAL_ADDRESS,
-# TEMPORAL_NAMESPACE ja TEMPORAL_API_KEY.
+# Temporal for a cloud install (EKS/GKE) on managed Postgres. Alternative: Temporal Cloud,
+# in which case this chart is not installed at all and the app gets TEMPORAL_ADDRESS,
+# TEMPORAL_NAMESPACE and TEMPORAL_API_KEY.
 #
 #   helm upgrade --install temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
 #     --namespace temporal --create-namespace -f deploy/temporal/values-cloud.yaml --timeout 900s
 #
-# Korvaa connectAddr hallitun kannan osoitteella. Tietokannat luodaan valmiiksi tai käyttäjälle
-# annetaan CREATEDB-oikeus. Secret "temporal-db" (avain "password") namespacessa temporal.
+# Replace connectAddr with the managed database address. Create the databases up front or give
+# the user CREATEDB. Secret "temporal-db" (key "password") in the temporal namespace.
 server:
   replicaCount: 2
   config:

@@ -1,9 +1,9 @@
 /**
- * Keittiö- ja kuljettajasimulaattori. Käyttää samaa henkilökunnan API:a kuin oikeat näkymät,
- * joten se on korvattavissa oikealla keittiöllä ja oikeilla kuljettajilla koskematta ketjuun.
+ * Kitchen and driver simulator. Uses the same staff API as the real views,
+ * so it can be replaced by a real kitchen and real drivers without touching the workflow.
  *
- * Tilaton: jokainen kierros päättelee tehtävänsä tilausten tilasta ja aikaleimoista,
- * joten simulaattorin voi tappaa ja käynnistää uudelleen milloin tahansa.
+ * Stateless: every round derives its work from the orders' statuses and timestamps,
+ * so the simulator can be killed and restarted at any time.
  */
 import { envOr, sleep, StaffClient, type SimOrder } from './client';
 
@@ -44,12 +44,12 @@ async function act(order: SimOrder, restaurant: { lat: number; lng: number }): P
       }
       break;
     case 'out_for_delivery': {
-      if (!order.driver?.id.startsWith(DRIVER_PREFIX) || !order.location) break; // oikea kuljettaja hoitaa
+      if (!order.driver?.id.startsWith(DRIVER_PREFIX) || !order.location) break; // a real driver has it
       const progress = Math.min(1, age / DRIVE_MS);
       if (progress >= 1) {
         await api.request('POST', `${base}/delivery`, { action: 'handover' });
       } else {
-        // Lievä kaari suoran viivan sijaan, jotta reitti näyttää kartalla ajolta.
+        // A slight arc instead of a straight line, so the route looks like driving on the map.
         const bend = Math.sin(progress * Math.PI) * 0.0015;
         await api.request('POST', `${base}/location`, {
           lat: restaurant.lat + (order.location.lat - restaurant.lat) * progress + bend,
@@ -62,7 +62,7 @@ async function act(order: SimOrder, restaurant: { lat: number; lng: number }): P
 }
 
 async function main(): Promise<void> {
-  console.log(`[sim] keittiö + kuljettajat → ${api.apiUrl} (autopay=${AUTOPAY})`);
+  console.log(`[sim] kitchen + drivers → ${api.apiUrl} (autopay=${AUTOPAY})`);
   let running = true;
   process.on('SIGTERM', () => (running = false));
   process.on('SIGINT', () => (running = false));
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       const { orders, restaurant } = await api.orders();
       const results = await Promise.allSettled(orders.map((o) => act(o, restaurant)));
       for (const r of results) {
-        // 409 = tila ehti muuttua kierrosten välissä; se on odotettua, ei virhe.
+        // 409 = the status changed between rounds; that is expected, not an error.
         if (r.status === 'rejected' && (r.reason as { status?: number }).status !== 409) {
           console.error(`[sim] ${(r.reason as Error).message}`);
         }

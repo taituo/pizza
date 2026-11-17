@@ -1,4 +1,4 @@
-# /api menee suoraan API:lle (SSE ei kulje nginx-välityksen läpi), kaikki muu UI:lle.
+# /api goes straight to the API (SSE does not pass through the nginx proxy), everything else to the UI.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

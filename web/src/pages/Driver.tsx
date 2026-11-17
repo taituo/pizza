@@ -7,7 +7,7 @@ const local = store('local');
 
 export function Driver() {
   return (
-    <StaffGate title="Kuljettaja">
+    <StaffGate title="Driver">
       <DriverView />
     </StaffGate>
   );
@@ -26,11 +26,11 @@ function DriverView() {
   const mineIds = mine.map((o) => o.id).join(',');
   const lastSent = useRef(0);
 
-  // Jaa puhelimen sijainti jokaiselle omalle kuljetukselle, enintään kerran kolmessa sekunnissa.
+  // Share the phone's location for each of my deliveries, at most once every three seconds.
   useEffect(() => {
     if (!sharing || !mineIds) return;
     if (!('geolocation' in navigator)) {
-      setGeoError('Tämä laite ei tue sijainnin jakamista.');
+      setGeoError('This device does not support location sharing.');
       setSharing(false);
       return;
     }
@@ -44,14 +44,14 @@ function DriverView() {
           api(`/api/staff/orders/${id}/location`, {
             body: { lat: pos.coords.latitude, lng: pos.coords.longitude },
             staffToken: token,
-          }).catch(() => undefined); // seuraava sijainti korvaa epäonnistuneen
+          }).catch(() => undefined); // the next location replaces a failed one
         }
       },
       (err) => {
         setGeoError(
           err.code === err.PERMISSION_DENIED
-            ? 'Sijainnin jakaminen on estetty. Salli se selaimen asetuksista, niin asiakas näkee sinut kartalla.'
-            : 'Sijaintia ei saatu. Yritetään uudelleen…',
+            ? 'Location sharing is blocked. Allow it in the browser settings so the customer can see you on the map.'
+            : 'Could not get a location. Retrying…',
         );
         if (err.code === err.PERMISSION_DENIED) setSharing(false);
       },
@@ -63,7 +63,7 @@ function DriverView() {
   if (!driverId) {
     return (
       <main className="page narrow">
-        <h1>Kuljettaja</h1>
+        <h1>Driver</h1>
         <form
           className="card"
           onSubmit={(e) => {
@@ -75,10 +75,10 @@ function DriverView() {
           }}
         >
           <label className="field">
-            Nimesi tai tunnuksesi
+            Your name or ID
             <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} required maxLength={60} autoFocus />
           </label>
-          <button className="btn primary">Aloita vuoro</button>
+          <button className="btn primary">Start shift</button>
         </form>
       </main>
     );
@@ -88,25 +88,25 @@ function DriverView() {
     return (
       <main className="page narrow">
         <div className="notice error" role="alert">
-          <p>Kuljetuksia ei saatu ladattua. {error}</p>
+          <p>Could not load deliveries. {error}</p>
           <button className="btn" onClick={reload}>
-            Yritä uudelleen
+            Try again
           </button>
         </div>
       </main>
     );
   }
-  if (!orders || !restaurant) return <main className="page narrow muted">Ladataan kuljetuksia…</main>;
+  if (!orders || !restaurant) return <main className="page narrow muted">Loading deliveries…</main>;
 
   const markers: MapMarker[] = [{ id: 'r', kind: 'restaurant', label: restaurant.name, ...restaurant }];
   for (const o of [...mine, ...available]) {
-    if (o.location) markers.push({ id: o.id, kind: 'customer', label: o.address ?? 'Toimituspaikka', ...o.location });
+    if (o.location) markers.push({ id: o.id, kind: 'customer', label: o.address ?? 'Delivery location', ...o.location });
   }
 
   return (
     <main className="page narrow">
       <header className="board-head">
-        <h1>Kuljetukset</h1>
+        <h1>Deliveries</h1>
         <p className="muted">
           {driverId} ·{' '}
           <button
@@ -116,7 +116,7 @@ function DriverView() {
               setDriverId('');
             }}
           >
-            vaihda
+            change
           </button>
         </p>
       </header>
@@ -126,17 +126,17 @@ function DriverView() {
         </p>
       )}
 
-      <MapView label="Kuljetusten kohteet kartalla" center={restaurant} markers={markers} height={260} />
+      <MapView label="Delivery destinations on the map" center={restaurant} markers={markers} height={260} />
 
       <section>
         <h2>
-          Omat kuljetukset <span className="count">{mine.length}</span>
+          My deliveries <span className="count">{mine.length}</span>
         </h2>
-        {mine.length === 0 && <p className="muted small">Ei kuljetuksia kesken.</p>}
+        {mine.length === 0 && <p className="muted small">No deliveries in progress.</p>}
         {mine.length > 0 && (
           <label className="toggle">
             <input type="checkbox" checked={sharing} onChange={(e) => setSharing(e.target.checked)} />
-            <span>Jaa sijaintini asiakkaalle</span>
+            <span>Share my location with the customer</span>
           </label>
         )}
         {mine.map((o) => (
@@ -149,7 +149,7 @@ function DriverView() {
             <p>{o.address}</p>
             <div className="actions">
               <button className="btn primary" onClick={() => act(`/api/staff/orders/${o.id}/delivery`, { action: 'handover' })}>
-                Toimitettu
+                Delivered
               </button>
             </div>
           </article>
@@ -158,19 +158,19 @@ function DriverView() {
 
       <section>
         <h2>
-          Odottaa kuljettajaa <span className="count">{available.length}</span>
+          Waiting for a driver <span className="count">{available.length}</span>
         </h2>
-        {available.length === 0 && <p className="muted small">Ei valmiita tilauksia juuri nyt.</p>}
+        {available.length === 0 && <p className="muted small">No orders ready right now.</p>}
         {available.map((o) => (
           <article className="card ticket" key={o.id}>
             <div className="ticket-head">
               <strong>#{o.id.slice(0, 6)}</strong>
-              <span>{o.items.reduce((n, i) => n + i.quantity, 0)} tuotetta</span>
+              <span>{o.items.reduce((n, i) => n + i.quantity, 0)} items</span>
             </div>
             <p>{o.address}</p>
             <div className="actions">
               <button className="btn primary" onClick={() => act(`/api/staff/orders/${o.id}/delivery`, { action: 'assign', driverId })}>
-                Ota kuljetus
+                Take delivery
               </button>
             </div>
           </article>

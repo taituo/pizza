@@ -26,18 +26,18 @@ export async function api<T>(
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     });
   } catch {
-    throw new ApiError(0, 'Yhteys palvelimeen katkesi. Tarkista verkkoyhteys ja yritä uudelleen.');
+    throw new ApiError(0, 'Lost connection to the server. Check your network and try again.');
   }
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(res.status, data?.error ?? `Pyyntö epäonnistui (${res.status})`);
+    throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
 /**
- * Tilaa palvelimen tapahtumavirran (SSE). Selain yhdistää automaattisesti uudelleen;
- * onResync kutsutaan aina yhteyden (uudelleen)avautuessa, jotta väliin jääneet muutokset haetaan.
+ * Subscribes to the server's event stream (SSE). The browser reconnects automatically;
+ * onResync is called whenever the connection (re)opens, so missed changes are fetched.
  */
 export function useEvents(url: string | null, onEvent: (e: OrderEvent) => void, onResync: () => void): void {
   const handlers = useRef({ onEvent, onResync });
@@ -55,18 +55,18 @@ export function useEvents(url: string | null, onEvent: (e: OrderEvent) => void, 
       try {
         handlers.current.onEvent(JSON.parse((msg as MessageEvent<string>).data) as OrderEvent);
       } catch {
-        /* ohitetaan rikkinäinen viesti */
+        /* skip a broken message */
       }
     });
     return () => source.close();
   }, [url]);
 }
 
-const eur = new Intl.NumberFormat('fi-FI', { style: 'currency', currency: 'EUR' });
+const eur = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' });
 export const money = (cents: number): string => eur.format(cents / 100);
 
 export const time = (iso: string): string =>
-  new Date(iso).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
+  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 export function store(kind: 'local' | 'session') {
   const s = (): Storage | null => {
@@ -89,33 +89,33 @@ export function store(kind: 'local' | 'session') {
         if (value === null) s()?.removeItem(key);
         else s()?.setItem(key, value);
       } catch {
-        /* tallennus ei ole välttämätön */
+        /* saving is not essential */
       }
     },
   };
 }
 
 export const STATUS_LABEL: Record<string, string> = {
-  created: 'Vastaanotettu',
-  awaiting_payment: 'Odottaa maksua',
-  paid: 'Odottaa keittiötä',
-  preparing: 'Valmistuksessa',
-  ready: 'Valmis',
-  out_for_delivery: 'Kuljetuksessa',
-  completed: 'Valmis',
-  cancelled: 'Peruttu',
+  created: 'Received',
+  awaiting_payment: 'Awaiting payment',
+  paid: 'Waiting for kitchen',
+  preparing: 'Preparing',
+  ready: 'Ready',
+  out_for_delivery: 'Out for delivery',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
 };
 
 export const CANCEL_LABEL: Record<string, string> = {
-  invalid_order: 'Tilauksessa oli virhe, eikä sitä voitu käsitellä.',
-  out_of_stock: 'Jokin tilaamasi tuote ehti loppua. Mitään ei veloitettu.',
-  payment_failed: 'Maksu epäonnistui. Mitään ei veloitettu.',
-  payment_timeout: 'Maksua ei tehty ajoissa, joten tilaus raukesi. Mitään ei veloitettu.',
-  customer_cancelled: 'Peruit tilauksen. Mahdollinen maksu palautetaan.',
-  kitchen_rejected: 'Keittiö ei valitettavasti voinut ottaa tilausta vastaan. Maksu palautetaan.',
-  kitchen_timeout: 'Keittiö ei ehtinyt käsitellä tilausta. Maksu palautetaan.',
-  delivery_timeout: 'Toimitus ei onnistunut. Maksu palautetaan.',
-  not_collected: 'Tilausta ei noudettu.',
-  operator_cancelled: 'Ravintola perui tilauksen. Maksu palautetaan.',
-  internal_error: 'Tilausta ei voitu käsitellä teknisen vian vuoksi. Mitään ei veloitettu.',
+  invalid_order: 'There was a problem with the order and it could not be processed.',
+  out_of_stock: 'Something you ordered just ran out. Nothing was charged.',
+  payment_failed: 'The payment failed. Nothing was charged.',
+  payment_timeout: 'The order was not paid in time, so it expired. Nothing was charged.',
+  customer_cancelled: 'You cancelled the order. Any payment will be refunded.',
+  kitchen_rejected: 'Unfortunately the kitchen could not take the order. Your payment will be refunded.',
+  kitchen_timeout: 'The kitchen did not get to the order in time. Your payment will be refunded.',
+  delivery_timeout: 'The delivery did not succeed. Your payment will be refunded.',
+  not_collected: 'The order was not collected.',
+  operator_cancelled: 'The restaurant cancelled the order. Your payment will be refunded.',
+  internal_error: 'The order could not be processed because of a technical fault. Nothing was charged.',
 };
