@@ -45,18 +45,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Kustomize-overlayt
+      - name: Kustomize overlays
         run: |
           for overlay in vps-k3s cloud; do
             kubectl kustomize deploy/k8s/overlays/$overlay > /tmp/$overlay.yaml
-            echo "$overlay: $(grep -c '^kind:' /tmp/$overlay.yaml) resurssia"
+            echo "$overlay: $(grep -c '^kind:' /tmp/$overlay.yaml) resources"
           done
       - name: Temporal Helm chart with both values files
         run: |
           for profile in vps cloud; do
             helm template temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
               --namespace temporal -f deploy/temporal/values-$profile.yaml > /tmp/temporal-$profile.yaml
-            echo "$profile: $(grep -c '^kind:' /tmp/temporal-$profile.yaml) resurssia"
+            echo "$profile: $(grep -c '^kind:' /tmp/temporal-$profile.yaml) resources"
           done
 
   e2e:
@@ -123,7 +123,7 @@ jobs:
         run: docker compose --profile sim logs --no-color --tail 200
 
   images:
-    name: Julkaise kuvat (GHCR)
+    name: Publish images (GHCR)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [test, manifests, e2e]
     runs-on: ubuntu-latest
