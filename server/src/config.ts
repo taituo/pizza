@@ -10,6 +10,7 @@ function num(name: string, fallback: number): number {
 }
 
 const DEV_STAFF_TOKEN = 'dev-staff-token';
+const DEV_AGENT_TOKEN = 'dev-agent-token';
 
 export interface Config {
   databaseUrl: string;
@@ -17,6 +18,9 @@ export interface Config {
   temporalNamespace: string;
   temporalApiKey: string;
   taskQueue: string;
+  agentTaskQueue: string;
+  /** Shared secret the agent workers use to call the API's agent endpoints. */
+  agentToken: string;
   port: number;
   host: string;
   publicUrl: string;
@@ -41,12 +45,18 @@ export function loadConfig(): Config {
   if (process.env.NODE_ENV === 'production' && staffToken === DEV_STAFF_TOKEN) {
     throw new Error('STAFF_TOKEN must be set in production');
   }
+  const agentToken = env('AGENT_TOKEN', DEV_AGENT_TOKEN);
+  if (process.env.NODE_ENV === 'production' && agentToken === DEV_AGENT_TOKEN) {
+    throw new Error('AGENT_TOKEN must be set in production');
+  }
   const cfg: Config = {
     databaseUrl: env('DATABASE_URL', 'postgres://pizza:pizza@localhost:5432/pizza'),
     temporalAddress: env('TEMPORAL_ADDRESS', 'localhost:7233'),
     temporalNamespace: env('TEMPORAL_NAMESPACE', 'default'),
     temporalApiKey: env('TEMPORAL_API_KEY', ''),
     taskQueue: env('TEMPORAL_TASK_QUEUE', 'orders'),
+    agentTaskQueue: env('TEMPORAL_AGENT_TASK_QUEUE', 'agents'),
+    agentToken,
     port: num('PORT', 3000),
     host: env('HOST', '0.0.0.0'),
     publicUrl: env('PUBLIC_URL', 'http://localhost:5173').replace(/\/$/, ''),

@@ -71,3 +71,30 @@ export interface OrderEvent {
   lat?: number;
   lng?: number;
 }
+
+export interface Proposal {
+  id: string;
+  accessToken: string;
+  status: 'open' | 'confirmed' | 'superseded' | 'expired';
+  fulfillment: Fulfillment;
+  items: OrderItem[];
+  deliveryFeeCents: number;
+  totalCents: number;
+  customerName: string | null;
+  phone: string | null;
+  address: string | null;
+  expiresAt: string;
+  orderId: string | null;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'agent';
+  content: string;
+}
+
+export interface Conversation {
+  id: string;
+  messages: ChatMessage[];
+  proposal: Proposal | null;
+  orders: { id: string; accessToken: string; status: OrderStatus }[];
+}

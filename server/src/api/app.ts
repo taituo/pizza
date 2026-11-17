@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
@@ -8,44 +8,21 @@ import { loadCatalog, notify, recordEvent, withTx } from '../db';
 import { haversineKm, OrderValidationError, priceOrder } from '../domain/pricing';
 import type { Catalog } from '../domain/types';
 import type { StripePaymentProvider } from '../payments/stripe';
-import { OrderNotActiveError, type OrderRuntime } from '../runtime';
+import { OrderNotActiveError, type ConversationRuntime, type OrderRuntime } from '../runtime';
+import { registerConversationRoutes } from './conversations';
+import { CreateOrder, HttpError, safeEqual, UUID, type NewOrder } from './shared';
 import type { EventHub } from './hub';
 
 export interface AppDeps {
   cfg: Config;
   pool: Pool;
   runtime: OrderRuntime;
+  /** Absent in deployments without agent workers: the conversation endpoints then answer 503. */
+  conversations?: ConversationRuntime;
   hub: EventHub;
   stripe?: StripePaymentProvider;
   logger?: boolean;
 }
-
-const UUID = z.uuid();
-
-const CreateOrder = z
-  .object({
-    customerName: z.string().trim().min(1).max(100),
-    phone: z.string().trim().min(5).max(30),
-    fulfillment: z.enum(['delivery', 'pickup']),
-    address: z.string().trim().min(3).max(300).optional(),
-    lat: z.number().min(-90).max(90).optional(),
-    lng: z.number().min(-180).max(180).optional(),
-    channel: z.enum(['web', 'app', 'agent', 'phone']).default('web'),
-    items: z
-      .array(
-        z.object({
-          productId: z.string().min(1).max(50),
-          size: z.enum(['normal', 'large']).default('normal'),
-          quantity: z.number().int().min(1).max(20),
-          without: z.array(z.string().min(1).max(50)).max(20).default([]),
-        }),
-      )
-      .min(1)
-      .max(30),
-  })
-  .refine((o) => o.fulfillment === 'pickup' || (o.address && o.lat !== undefined && o.lng !== undefined), {
-    message: 'Delivery requires an address and a location',
-  });
 
 const KitchenAction = z.object({ action: z.enum(['accept', 'reject', 'ready']) });
 const DeliveryAction = z.object({
@@ -55,22 +32,7 @@ const DeliveryAction = z.object({
 const Location = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
 const Restock = z.object({ amount: z.number().int().min(1).max(1_000_000) });
 
-class HttpError extends Error {
-  constructor(
-    readonly statusCode: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-
-export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: AppDeps): FastifyInstance {
+export function buildApp({ cfg, pool, runtime, conversations, hub, stripe, logger = true }: AppDeps): FastifyInstance {
   const app = Fastify({ logger, bodyLimit: 256 * 1024 });
 
   app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
@@ -194,9 +156,15 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     };
   });
 
-  app.post('/api/orders', async (req, reply) => {
-    const body = CreateOrder.parse(req.body);
-
+  /**
+   * The one way an order comes into being, whatever the channel: the web shop calls it directly,
+   * an agent's proposal reaches it only when the customer confirms.
+   */
+  const placeOrder = async (
+    body: NewOrder,
+    log: FastifyRequest['log'],
+    conversationId: string | null = null,
+  ): Promise<{ id: string; accessToken: string; estimatedTotalCents: number }> => {
     // Fast feedback for the customer. The order workflow prices and checks the same again itself:
     // it is the order's source of truth; this only avoids starting a pointless workflow.
     const estimate = priceOrder(body.items, await getCatalog(), body.fulfillment, cfg.deliveryFeeCents);
@@ -212,8 +180,8 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     const delivery = body.fulfillment === 'delivery';
     await withTx(pool, async (tx) => {
       await tx.query(
-        `insert into orders (id, access_token, fulfillment, channel, customer_name, phone, address, lat, lng, items)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `insert into orders (id, access_token, fulfillment, channel, customer_name, phone, address, lat, lng, items, conversation_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           id,
           accessToken,
@@ -225,6 +193,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
           delivery ? body.lat : null,
           delivery ? body.lng : null,
           JSON.stringify(body.items),
+          conversationId,
         ],
       );
       await recordEvent(tx, id, 'order.created', { channel: body.channel, fulfillment: body.fulfillment });
@@ -233,7 +202,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     try {
       await runtime.start(id, body.fulfillment);
     } catch (err) {
-      req.log.error(err, 'failed to start order workflow');
+      log.error(err, 'failed to start order workflow');
       await withTx(pool, async (tx) => {
         await tx.query(
           `update orders set status = 'cancelled', cancel_reason = 'internal_error', updated_at = now() where id = $1`,
@@ -243,8 +212,14 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
       });
       throw new HttpError(503, 'We cannot take orders right now. Please try again in a moment.');
     }
-    return reply.code(201).send({ id, accessToken, estimatedTotalCents: estimate.totalCents });
+    return { id, accessToken, estimatedTotalCents: estimate.totalCents };
+  };
+
+  app.post('/api/orders', async (req, reply) => {
+    return reply.code(201).send(await placeOrder(CreateOrder.parse(req.body), req.log));
   });
+
+  registerConversationRoutes(app, { cfg, pool, conversations, getCatalog, placeOrder, isStaff, parseOrder: (o) => CreateOrder.parse(o) });
 
   app.get('/api/orders/:id', async (req) => {
     const id = await requireOrderAccess(req);

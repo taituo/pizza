@@ -15,7 +15,8 @@
     "start:api": "node dist/api/main.js",
     "start:worker": "node dist/worker/main.js",
     "start:sim": "node dist/sim/main.js",
-    "start:migrate": "node dist/migrate.js"
+    "start:migrate": "node dist/migrate.js",
+    "chat": "tsx src/sim/chat.ts"
   },
   "dependencies": {
     "@temporalio/activity": "^1.25.0",

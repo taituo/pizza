@@ -1,4 +1,4 @@
-# Non-secret settings. Secrets (DATABASE_URL, STAFF_TOKEN, Stripe keys) come from the
+# Non-secret settings. Secrets (DATABASE_URL, STAFF_TOKEN, AGENT_TOKEN, Stripe keys) come from the
 # Secret "pizza-secrets", which is not kept in version control: see deploy/README.md.
 apiVersion: v1
 kind: ConfigMap
@@ -8,6 +8,7 @@ data:
   TEMPORAL_ADDRESS: temporal-frontend.temporal.svc.cluster.local:7233
   TEMPORAL_NAMESPACE: default
   TEMPORAL_TASK_QUEUE: orders
+  TEMPORAL_AGENT_TASK_QUEUE: agents
   PAYMENT_PROVIDER: sim
   PUBLIC_URL: https://pizza.example.com
   RESTAURANT_NAME: Golden Sample Pizzeria
@@ -16,3 +17,13 @@ data:
   DELIVERY_RADIUS_KM: "8"
   DELIVERY_FEE_CENTS: "390"
   NODE_ENV: production
+---
+# Ordering agent settings. Leave AGENT_MODEL empty to answer with the scripted harness (no model).
+# With a model, put the provider key (ANTHROPIC_API_KEY or OPENAI_API_KEY) in the Secret "agent-secrets".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+data:
+  AGENT_MODEL: ""
+  AGENT_MAX_MODEL_CALLS: "8"

@@ -4,6 +4,9 @@
 #   docker compose --profile sim up --build   + kitchen and driver simulator (orders progress on their own)
 #   docker compose --profile bi up            + Metabase: http://localhost:3001
 #
+# The ordering agent (http://localhost:8080/chat) answers with the scripted harness by default.
+# For Deep Agents with a real model: AGENT_MODEL=anthropic:claude-sonnet-5-5 ANTHROPIC_API_KEY=... docker compose up
+#
 # Temporal here is the dev server (one process, SQLite). In the Kubernetes installs Temporal
 # uses the same Postgres as the app: see deploy/temporal.
 
@@ -11,6 +14,7 @@ x-server-env: &server-env
   DATABASE_URL: postgres://pizza:pizza@postgres:5432/pizza
   TEMPORAL_ADDRESS: temporal:7233
   STAFF_TOKEN: ${STAFF_TOKEN:-dev-staff-token}
+  AGENT_TOKEN: ${AGENT_TOKEN:-dev-agent-token}
   PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
   PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sim}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -74,6 +78,21 @@ services:
       temporal: { condition: service_healthy }
     deploy:
       replicas: ${WORKER_REPLICAS:-2}
+
+  # Agent workers: conversation workflows and agent turns. They reach the shop only through the API.
+  agent:
+    build: { context: agent }
+    environment:
+      API_URL: http://api:3000
+      TEMPORAL_ADDRESS: temporal:7233
+      AGENT_TOKEN: ${AGENT_TOKEN:-dev-agent-token}
+      AGENT_HARNESS: ${AGENT_HARNESS:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      api: { condition: service_healthy }
+      temporal: { condition: service_healthy }
 
   web:
     build: { context: ., target: web }
