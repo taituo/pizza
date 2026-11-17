@@ -237,6 +237,38 @@ describe.skipIf(skip)('orderWorkflow', () => {
     expect(result).toEqual({ status: 'cancelled', cancelReason: 'kitchen_timeout' });
   });
 
+  it('accepts a signal sent the instant the new status becomes visible', async () => {
+    // Regressio: kuljettaja ottaa tilauksen heti, kun "ready" näkyy tietokannassa. Signaali päätyy
+    // historiaan ennen tilasiirtymän valmistumista ja käsitellään samassa erässä sen kanssa.
+    const calls: string[] = [];
+    const { result } = await run(
+      {
+        overrides: {
+          transition: async (id, status) => {
+            calls.push(status);
+            if (status === 'ready') {
+              await env.client.workflow.getHandle(`order-${id}`).signal(driverAssignedSignal, { driverId: 'd1' });
+            }
+            if (status === 'out_for_delivery') {
+              await env.client.workflow.getHandle(`order-${id}`).signal(handedOverSignal);
+            }
+          },
+        },
+        timeouts: { driverAssignMs: 5_000, handoverMs: 5_000 },
+      },
+      async (wf, until) => {
+        await until('awaiting_payment');
+        await wf.signal(paymentResultSignal, { status: 'succeeded' });
+        await until('paid');
+        await wf.signal(kitchenDecisionSignal, { accepted: true });
+        await until('preparing');
+        await wf.signal(kitchenReadySignal);
+      },
+    );
+    expect(result).toEqual({ status: 'completed' });
+    expect(calls).toEqual(['awaiting_payment', 'paid', 'preparing', 'ready', 'out_for_delivery', 'completed']);
+  });
+
   it('retries a failing activity instead of failing the order', async () => {
     let attempts = 0;
     const { result } = await run(

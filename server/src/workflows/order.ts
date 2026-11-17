@@ -86,9 +86,13 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
   });
   setHandler(orderStateQuery, () => ({ status, cancelReason }));
 
+  // Ketjun oma tila vaihtuu ENNEN kuin tila kirjoitetaan tietokantaan. Ulkomaailma näkee uuden
+  // tilan vasta tietokannasta, joten sen perusteella lähetetty signaali (esim. kuljettaja ottaa
+  // juuri valmistuneen tilauksen) osuu aina vaiheeseen, jonka ketju jo hyväksyy, vaikka signaali
+  // ja activityn valmistuminen käsiteltäisiin samassa erässä workerin katkon jälkeen.
   const transition = async (next: OrderStatus): Promise<void> => {
-    await acts.transition(orderId, next);
     status = next;
+    await acts.transition(orderId, next);
   };
   const checkCancel = (): void => {
     if (cancelRequested) throw new Abort(cancelRequested);
