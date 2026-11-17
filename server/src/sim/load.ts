@@ -1,11 +1,11 @@
 /**
- * Kuormitustesti: luo N tilausta ja raportoi, miten ketjut etenevät.
+ * Load test: creates N orders and reports how the workflows progress.
  *
  *   npm run load -- --orders 10000 --concurrency 50
- *   npm run load -- --orders 200 --pay --wait        (yhdessä simulaattorin kanssa: ketjut ajetaan loppuun)
+ *   npm run load -- --orders 200 --pay --wait        (with the simulator: workflows run to the end)
  *
- * Ilman --pay tilaukset jäävät odottamaan maksua: tämä on "10 000 odottavaa ketjua" -tilanne,
- * jossa yksikään workeri ei ole varattuna. --restock täyttää varaston ennen ajoa.
+ * Without --pay the orders stay waiting for payment: this is the "10,000 waiting workflows" case,
+ * where no worker is held. --restock fills the stock before the run.
  */
 import { envOr, sleep, StaffClient } from './client';
 
@@ -29,7 +29,7 @@ const pick = <T>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 function randomOrder(restaurant: { lat: number; lng: number }): Record<string, unknown> {
   const delivery = Math.random() < 0.7;
   return {
-    customerName: `Kuormatesti ${Math.floor(Math.random() * 1e6)}`,
+    customerName: `Load test ${Math.floor(Math.random() * 1e6)}`,
     phone: '0401234567',
     fulfillment: delivery ? 'delivery' : 'pickup',
     channel: 'web',
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     for (const ing of ingredients) {
       await api.request('POST', `/api/staff/ingredients/${ing.id}/restock`, { amount: TOTAL * 10 });
     }
-    console.log(`[load] varasto täytetty (${ingredients.length} raaka-ainetta)`);
+    console.log(`[load] stock filled (${ingredients.length} ingredients)`);
   }
 
   const before = (await api.stats()).byStatus;
@@ -78,16 +78,16 @@ async function main(): Promise<void> {
         created++;
       } catch (err) {
         failed++;
-        if (failed <= 5) console.error(`[load] tilauksen luonti epäonnistui: ${(err as Error).message}`);
+        if (failed <= 5) console.error(`[load] creating an order failed: ${(err as Error).message}`);
       }
-      if ((created + failed) % 500 === 0) console.log(`[load] ${created + failed}/${TOTAL} lähetetty`);
+      if ((created + failed) % 500 === 0) console.log(`[load] ${created + failed}/${TOTAL} sent`);
     }
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   const createSeconds = (Date.now() - started) / 1000;
   console.log(
-    `[load] luotu ${created} tilausta (${failed} virhettä) ajassa ${createSeconds.toFixed(1)} s ` +
-      `= ${(created / createSeconds).toFixed(0)} tilausta/s`,
+    `[load] created ${created} orders (${failed} errors) in ${createSeconds.toFixed(1)} s ` +
+      `= ${(created / createSeconds).toFixed(0)} orders/s`,
   );
 
   const delta = async (): Promise<Record<string, number>> => {
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
     return d;
   };
 
-  // Vaihe 1: jokainen ketju on käsitellyt validoinnin, varauksen ja maksun avauksen.
+  // Stage 1: every workflow has processed validation, reservation and opening the payment.
   const deadline = Date.now() + TIMEOUT_S * 1000;
   let d = await delta();
   while ((d.created ?? 0) > 0 && Date.now() < deadline) {
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     d = await delta();
   }
   console.log(
-    `[load] kaikki ketjut odottavat maksua tai ovat edenneet: ${((Date.now() - started) / 1000).toFixed(1)} s`,
+    `[load] all workflows are waiting for payment or have moved on: ${((Date.now() - started) / 1000).toFixed(1)} s`,
     d,
   );
 
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
       }
     };
     await Promise.all(Array.from({ length: CONCURRENCY }, payer));
-    console.log(`[load] maksettu ${ids.length - payFailed} tilausta (${payFailed} ei maksettavissa)`);
+    console.log(`[load] paid ${ids.length - payFailed} orders (${payFailed} not payable)`);
   }
 
   if (WAIT) {
@@ -139,8 +139,8 @@ async function main(): Promise<void> {
     const ok = finished(d) >= created;
     console.log(
       ok
-        ? `[load] kaikki ${created} ketjua päättyivät: ${((Date.now() - started) / 1000).toFixed(1)} s`
-        : `[load] aikakatkaisu: ${finished(d)}/${created} ketjua päättyi`,
+        ? `[load] all ${created} workflows finished: ${((Date.now() - started) / 1000).toFixed(1)} s`
+        : `[load] timeout: ${finished(d)}/${created} workflows finished`,
     );
     if (!ok || failed > 0) process.exit(1);
   } else if (failed > 0 || (d.created ?? 0) > 0) {

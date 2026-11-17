@@ -1,6 +1,6 @@
-# Yksi Postgres koko järjestelmälle (pieni asennus): sovelluksen kanta "pizza" sekä
-# Temporalin kannat "temporal" ja "temporal_visibility" erillisinä tietokantoina.
-# Yksi instanssi on myös yksi vikaantumispiste: ota varmuuskopiot käyttöön (deploy/README.md).
+# One Postgres for the whole system (small install): the app database "pizza" plus
+# Temporal's "temporal" and "temporal_visibility" as separate databases.
+# One instance is also a single point of failure: enable backups (deploy/README.md).
 apiVersion: v1
 kind: Service
 metadata:

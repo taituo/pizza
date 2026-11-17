@@ -9,13 +9,13 @@ export interface PaymentRequest {
 }
 
 /**
- * Maksupalvelun rajapinta. Jokaisen toteutuksen pitää olla idempotentti tilauksen suhteen:
- * Temporal voi ajaa saman activityn uudelleen, eikä se saa johtaa toiseen veloitukseen tai hyvitykseen.
+ * Payment provider interface. Every implementation must be idempotent per order:
+ * Temporal may re-run the same activity, and that must not lead to a second charge or refund.
  */
 export interface PaymentProvider {
   readonly name: 'sim' | 'stripe';
   start(req: PaymentRequest): Promise<{ ref: string; checkoutUrl: string | null }>;
-  /** Mitätöi avoimen maksun. Palauttaa 'paid', jos asiakas ehti maksaa ennen mitätöintiä. */
+  /** Voids an open payment. Returns 'paid' if the customer paid before the void. */
   cancel(ref: string, orderId: string): Promise<'cancelled' | 'paid'>;
   refund(ref: string, orderId: string, amountCents: number): Promise<void>;
 }

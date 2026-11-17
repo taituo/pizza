@@ -10,39 +10,39 @@ export class OrderValidationError extends Error {
 export const MAX_QUANTITY_PER_LINE = 20;
 export const MAX_LINES = 30;
 
-/** Palvelin on ainoa hinnan lähde: asiakkaan tai agentin lähettämiä hintoja ei koskaan käytetä. */
+/** The server is the only source of prices: prices sent by a customer or an agent are never used. */
 export function priceOrder(
   items: OrderItemRequest[],
   catalog: Catalog,
   fulfillment: Fulfillment,
   deliveryFeeCents: number,
 ): PricedOrder {
-  if (items.length === 0) throw new OrderValidationError('Tilauksessa ei ole tuotteita');
-  if (items.length > MAX_LINES) throw new OrderValidationError('Tilauksessa on liikaa rivejä');
+  if (items.length === 0) throw new OrderValidationError('The order has no items');
+  if (items.length > MAX_LINES) throw new OrderValidationError('The order has too many lines');
 
   const priced: PricedItem[] = items.map((item) => {
     const product = catalog.get(item.productId);
     if (!product || !product.active) {
-      throw new OrderValidationError(`Tuotetta ei ole saatavilla: ${item.productId}`);
+      throw new OrderValidationError(`Product is not available: ${item.productId}`);
     }
     if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_QUANTITY_PER_LINE) {
-      throw new OrderValidationError(`Virheellinen määrä tuotteelle ${product.name}`);
+      throw new OrderValidationError(`Invalid quantity for ${product.name}`);
     }
     let unit: number;
     if (item.size === 'large') {
       if (product.priceLargeCents === null) {
-        throw new OrderValidationError(`${product.name} ei ole saatavilla isona`);
+        throw new OrderValidationError(`${product.name} is not available in large`);
       }
       unit = product.priceLargeCents;
     } else if (item.size === 'normal') {
       unit = product.priceCents;
     } else {
-      throw new OrderValidationError(`Virheellinen koko tuotteelle ${product.name}`);
+      throw new OrderValidationError(`Invalid size for ${product.name}`);
     }
     for (const ing of item.without) {
       const found = product.ingredients.find((i) => i.id === ing);
       if (!found || !found.removable) {
-        throw new OrderValidationError(`Ainesosaa ${ing} ei voi poistaa tuotteesta ${product.name}`);
+        throw new OrderValidationError(`Ingredient ${ing} cannot be removed from ${product.name}`);
       }
     }
     const without = [...new Set(item.without)].sort();
@@ -63,12 +63,12 @@ export function priceOrder(
   return { items: priced, subtotalCents, deliveryFeeCents: fee, totalCents: subtotalCents + fee };
 }
 
-/** Raaka-ainetarve varastovarausta varten. Iso pizza kuluttaa 1,5-kertaisen määrän (pyöristys ylös). */
+/** Ingredient needs for the stock reservation. A large pizza uses 1.5x the amount (rounded up). */
 export function ingredientNeeds(items: OrderItemRequest[], catalog: Catalog): Record<string, number> {
   const needs: Record<string, number> = {};
   for (const item of items) {
     const product = catalog.get(item.productId);
-    if (!product) throw new OrderValidationError(`Tuotetta ei ole saatavilla: ${item.productId}`);
+    if (!product) throw new OrderValidationError(`Product is not available: ${item.productId}`);
     for (const ing of product.ingredients) {
       if (item.without.includes(ing.id)) continue;
       const perUnit = item.size === 'large' ? Math.ceil(ing.qty * 1.5) : ing.qty;

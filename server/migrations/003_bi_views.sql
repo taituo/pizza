@@ -1,5 +1,5 @@
--- BI-näkymät suoraan samaan Postgresiin (Metabase tms. lukee näitä).
--- Kaikki perustuu order_events-tauluun, joten uusi mittari ei vaadi sovellusmuutosta.
+-- BI views directly in the same Postgres (Metabase or similar reads these).
+-- Everything is based on the order_events table, so a new metric needs no application change.
 
 create view bi_orders as
 select
@@ -17,7 +17,7 @@ select
   (select min(e.created_at) from order_events e where e.order_id = o.id and e.type = 'status.completed')         as completed_at
 from orders o;
 
--- Myynti päivittäin: liikevaihto, konversio tilauksesta maksuun, keskiostos.
+-- Daily sales: revenue, order-to-payment conversion, average order value.
 create view bi_sales_daily as
 select
   date_trunc('day', created_at)                                     as day,
@@ -31,7 +31,7 @@ select
 from bi_orders
 group by 1;
 
--- Missä ketju hidastuu: vaiheiden kestot minuutteina.
+-- Where the chain slows down: stage durations in minutes.
 create view bi_stage_durations as
 select
   id,

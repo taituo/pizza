@@ -1,11 +1,11 @@
-# Paikallinen kehitys- ja demoympäristö.
+# Local development and demo environment.
 #
-#   docker compose up --build                 kauppa: http://localhost:8080, Temporal UI: http://localhost:8233
-#   docker compose --profile sim up --build   + keittiö- ja kuljettajasimulaattori (tilaukset etenevät itsestään)
+#   docker compose up --build                 shop: http://localhost:8080, Temporal UI: http://localhost:8233
+#   docker compose --profile sim up --build   + kitchen and driver simulator (orders progress on their own)
 #   docker compose --profile bi up            + Metabase: http://localhost:3001
 #
-# Temporal on tässä kehityspalvelin (yksi prosessi, SQLite). Kubernetes-asennuksissa Temporal
-# käyttää samaa Postgresia kuin sovellus: ks. deploy/temporal.
+# Temporal here is the dev server (one process, SQLite). In the Kubernetes installs Temporal
+# uses the same Postgres as the app: see deploy/temporal.
 
 x-server-env: &server-env
   DATABASE_URL: postgres://pizza:pizza@postgres:5432/pizza

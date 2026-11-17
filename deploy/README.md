@@ -1,17 +1,17 @@
-# Käyttöönotto Kubernetesiin
+# Deploying to Kubernetes
 
-Sama sovellus, kaksi profiilia. Sovelluksen manifestit ovat Kustomize-overlayta, Temporal asennetaan virallisella Helm-chartilla.
+Same application, two profiles. The application manifests are Kustomize overlays; Temporal is installed with the official Helm chart.
 
-| | Halpa VPS (`vps-k3s`) | Pilvi (`cloud`) |
+| | Cheap VPS (`vps-k3s`) | Cloud (`cloud`) |
 |---|---|---|
-| Kubernetes | k3s, yksi solmu | EKS tai GKE |
-| Postgres | yksi instanssi klusterissa (sovellus + Temporal) | hallittu, HA |
-| Temporal | Helm-chart, 1 replika | Helm-chart useilla replikoilla tai Temporal Cloud |
-| Skaalaus | kiinteät replikat | HPA (API 2–10, workerit 3–30) |
+| Kubernetes | k3s, one node | EKS or GKE |
+| Postgres | one instance in the cluster (app + Temporal) | managed, HA |
+| Temporal | Helm chart, 1 replica | Helm chart with several replicas, or Temporal Cloud |
+| Scaling | fixed replicas | HPA (API 2–10, workers 3–30) |
 
-## 1. Salaisuudet
+## 1. Secrets
 
-Salaisuuksia ei säilytetä repossa. Luo ne käsin tai omalla työkalullasi (External Secrets, SOPS):
+Secrets are not kept in the repo. Create them by hand or with your own tooling (External Secrets, SOPS):
 
 ```bash
 kubectl create namespace pizza
@@ -27,18 +27,18 @@ kubectl -n pizza create secret generic pizza-secrets \
 kubectl -n temporal create secret generic temporal-db --from-literal=password="$PG_PASSWORD"
 ```
 
-Stripe: lisää samaan Secretiin `STRIPE_SECRET_KEY` ja `STRIPE_WEBHOOK_SECRET` ja aseta ConfigMapissa `PAYMENT_PROVIDER=stripe`. Webhookin osoite on `https://<domain>/api/webhooks/stripe`, tapahtumat `checkout.session.completed`, `checkout.session.expired`, `checkout.session.async_payment_succeeded` ja `checkout.session.async_payment_failed`.
+Stripe: add `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` to the same Secret and set `PAYMENT_PROVIDER=stripe` in the ConfigMap. The webhook address is `https://<domain>/api/webhooks/stripe`, with events `checkout.session.completed`, `checkout.session.expired`, `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed`.
 
-Pilviprofiilissa `DATABASE_URL` osoittaa hallittuun kantaan eikä `POSTGRES_PASSWORD`-avainta tarvita.
+In the cloud profile `DATABASE_URL` points to the managed database and the `POSTGRES_PASSWORD` key is not needed.
 
-## 2. Sovellus ja Postgres
+## 2. Application and Postgres
 
 ```bash
-# Aseta ensin oma domain: deploy/k8s/base/ingress.yaml ja PUBLIC_URL tiedostossa base/config.yaml
-kubectl apply -k deploy/k8s/overlays/vps-k3s     # tai overlays/cloud
+# First set your own domain: deploy/k8s/base/ingress.yaml and PUBLIC_URL in base/config.yaml
+kubectl apply -k deploy/k8s/overlays/vps-k3s     # or overlays/cloud
 ```
 
-API ja workerit käynnistyvät uudelleen, kunnes Temporal on asennettu (vaihe 3). Tietokantamigraatiot ajetaan käynnistyksessä; rinnakkaiset podit on suojattu advisory-lukolla.
+The API and workers restart until Temporal is installed (step 3). Database migrations run at startup; concurrent pods are protected by an advisory lock.
 
 ## 3. Temporal
 
@@ -47,26 +47,25 @@ helm upgrade --install temporal temporal --repo https://go.temporal.io/helm-char
   --namespace temporal --create-namespace -f deploy/temporal/values-vps.yaml --timeout 900s
 ```
 
-Chart luo Temporalin tietokannat samaan Postgresiin, ajaa skeemat ja luo `default`-namespacen. Temporal UI:
+The chart creates Temporal's databases in the same Postgres, runs the schemas and creates the `default` namespace. Temporal UI:
 
 ```bash
 kubectl -n temporal port-forward svc/temporal-web 8080:8080
 ```
 
-## 4. GitOps (valinnainen)
+## 4. GitOps (optional)
 
-`deploy/argocd/applications.yaml` määrittelee molemmat (Temporal + sovellus) Argo CD -sovelluksina. CI julkaisee kuvat `ghcr.io/taituo/pizza-server` ja `pizza-web` tageilla `latest` ja commitin SHA. Tuotannossa kiinnitä overlayn `images`-kohtaan SHA-tagi, jolloin jokainen julkaisu on Git-commit ja palautus on `git revert`.
+`deploy/argocd/applications.yaml` defines both (Temporal + application) as Argo CD applications. CI publishes the images `ghcr.io/taituo/pizza-server` and `pizza-web` with the tags `latest` and the commit SHA. In production pin the SHA tag in the overlay's `images` section, so every release is a Git commit and a rollback is `git revert`.
 
-## Varmuuskopiot (VPS)
+## Backups (VPS)
 
-Yksi Postgres on yksi vikaantumispiste. Vähintään päivittäinen `pg_dumpall` klusterin ulkopuolelle:
+One Postgres is a single point of failure. At minimum a daily `pg_dumpall` to somewhere outside the cluster:
 
 ```bash
 kubectl -n pizza exec postgres-0 -- pg_dumpall -U pizza | gzip > pizza-$(date +%F).sql.gz
 ```
 
-## Mitä tässä ei vielä ole
+## Not here yet
 
-- Verkkopolitiikat ja erilliset node-poolit agenteille (tulevat vaiheessa, jossa agentit lisätään).
-- Canary-julkaisut (Argo Rollouts) ja workerien skaalaus Temporalin jonon pituudella (KEDA).
-- Postgresin HA VPS-profiilissa.
+- Postgres HA in the VPS profile.
+- Worker scaling on the Temporal task queue backlog (KEDA).

@@ -1,37 +1,37 @@
 # Agent-Native Commerce — Golden Sample 2026
 
-Pizzakauppa, jonka tilaukset kulkevat pitkäkestoisina, deterministisinä Temporal-ketjuina Kubernetesissa. Tämä repo sisältää **vaiheen 1: toimiva kauppa päästä päähän**. Agentit, puhelu- ja viestikanavat sekä kehitysagentit rakennetaan tämän päälle (ks. [Tiekartta](#tiekartta)).
+A pizza shop whose orders run as long-lived, deterministic Temporal workflows on Kubernetes. Agents, phone and messaging channels and development agents all use the same order API and the same workflow.
 
 ```
- Asiakas (web)     Keittiö     Kuljettaja     Tilannekuva        ← reaktiivinen UI (React, SSE)
+ Customer (web)    Kitchen     Driver      Overview              ← reactive UI (React, SSE)
        └──────────────┴────────────┴──────────────┘
                           │
-                     Ohut API (Fastify)                          ← validointi, tunnistus, signaalit
+                     Thin API (Fastify)                          ← validation, auth, signals
                     ┌─────┴──────────────┐
                     │                    │
-          Temporal: tilausketju     PostgreSQL                   ← yksi kanta: tilaukset, varasto,
-     validointi → varasto → maksu      │  ▲                        maksut, tapahtumat, BI-näkymät
-     → keittiö → toimitus → valmis     │  │ LISTEN/NOTIFY → SSE
+          Temporal: order workflow   PostgreSQL                  ← one database: orders, stock,
+     validate → stock → payment        │  ▲                        payments, events, BI views
+     → kitchen → delivery → done       │  │ LISTEN/NOTIFY → SSE
                     │                  │  │
-              Workerit (N kpl) ────────┘  │
-              activityt: idempotentit ────┘
+              Workers (N) ─────────────┘  │
+              activities: idempotent ─────┘
 ```
 
-## Mitä tässä on
+## What is here
 
-- **Tilausketju** ([`server/src/workflows/order.ts`](server/src/workflows/order.ts)): yksi Temporal-workflow per tilaus. Odottaa maksua, keittiötä ja kuljettajaa minuutteja tai tunteja varaamatta yhtään prosessia. Aikakatkaisut ja kompensaatiot (maksun hyvitys, varaston palautus) ovat osa ketjua.
-- **Ei kaksoisveloituksia**: jokainen sivuvaikutus on idempotentti tilauksen suhteen (yksi maksurivi ja yksi varastovaraus per tilaus, tilauskohtaiset idempotency-avaimet). Workerin voi tappaa kesken ketjun.
-- **Maksut**: yhteinen rajapinta, takana simuloitu maksupalvelu (oletus) tai Stripe Checkout allekirjoitetuilla webhookeilla. Hinnan laskee aina palvelin.
-- **Varasto**: raaka-ainetasolla, varataan tilaukselle ja palautetaan, jos tilaus peruuntuu ennen valmistusta.
-- **Toimitusseuranta kartalla**: kuljettaja jakaa sijaintinsa puhelimesta, asiakas näkee sen reaaliajassa. Sijaintivirta ei kulje ketjun läpi.
-- **Näkymät**: kauppa ja tilauksen seuranta (`/`), keittiö (`/kitchen`), kuljettaja (`/driver`), operaattorin tilannekuva (`/ops`).
-- **BI**: kaikki liiketoimintatapahtumat taulussa `order_events`; valmiit näkymät (`bi_sales_daily`, `bi_stage_durations`, `bi_cancellations`, `bi_product_sales`) samassa Postgresissa. Metabase käynnistyy profiililla `bi`.
-- **Kubernetes**: Kustomize-overlayt halvalle VPS:lle (k3s) ja pilveen (EKS/GKE), Temporal Helm-chartilla samaan Postgresiin. Ks. [`deploy/README.md`](deploy/README.md).
-- **CI/CD**: tyyppitarkistus, testit, manifestien renderöinti ja koko ketjun ajo Docker Composella niin, että workerit tapetaan kesken kuorman. Kuvat GHCR:ään, Argo CD -määrittelyt mukana.
+- **Order workflow** ([`server/src/workflows/order.ts`](server/src/workflows/order.ts)): one Temporal workflow per order. It waits for payment, the kitchen and the driver for minutes or hours without holding a process. Timeouts and compensations (refund, stock release) are part of the workflow.
+- **No double charges**: every side effect is idempotent per order (one payment row and one stock reservation per order, per-order idempotency keys). A worker can be killed mid-workflow.
+- **Payments**: one interface, backed by a simulated provider (default) or Stripe Checkout with signed webhooks. The server always computes the price.
+- **Stock**: at ingredient level, reserved for the order and returned if the order is cancelled before preparation.
+- **Delivery tracking on a map**: the driver shares their location from a phone and the customer sees it live. The location stream does not go through the workflow.
+- **Views**: shop and order tracking (`/`), kitchen (`/kitchen`), driver (`/driver`), operator overview (`/ops`).
+- **BI**: every business event is in the `order_events` table; ready-made views (`bi_sales_daily`, `bi_stage_durations`, `bi_cancellations`, `bi_product_sales`) live in the same Postgres. Metabase starts with the `bi` profile.
+- **Kubernetes**: Kustomize overlays for a cheap VPS (k3s) and the cloud (EKS/GKE), Temporal by Helm chart on the same Postgres. See [`deploy/README.md`](deploy/README.md).
+- **CI/CD**: typecheck, tests, manifest rendering and a full-chain run on Docker Compose where the workers are killed under load. Images go to GHCR; Argo CD definitions are included.
 
-## Käynnistys
+## Running it
 
-Vaatii Dockerin.
+Requires Docker.
 
 ```bash
 docker compose --profile sim up --build
@@ -39,88 +39,88 @@ docker compose --profile sim up --build
 
 | | |
 |---|---|
-| Kauppa | http://localhost:8080 |
-| Keittiö, kuljettaja, tilannekuva | http://localhost:8080/kitchen, `/driver`, `/ops` (tunniste `dev-staff-token`) |
+| Shop | http://localhost:8080 |
+| Kitchen, driver, overview | http://localhost:8080/kitchen, `/driver`, `/ops` (token `dev-staff-token`) |
 | Temporal UI | http://localhost:8233 |
 
-Profiili `sim` käynnistää keittiö- ja kuljettajasimulaattorin: tee tilaus, paina *Maksa (testimaksu)* ja seuraa, kun tilaus etenee ja kuljettaja liikkuu kartalla. Ilman profiilia hoidat keittiön ja kuljetuksen itse henkilökunnan näkymistä.
+The `sim` profile starts a kitchen and driver simulator: place an order, press *Pay (test payment)* and watch the order progress and the driver move on the map. Without the profile you run the kitchen and delivery yourself from the staff views.
 
-BI: `docker compose --profile bi up`, avaa http://localhost:3001 ja lisää tietokannaksi PostgreSQL `postgres:5432`, kanta, käyttäjä ja salasana `pizza`.
+BI: `docker compose --profile bi up`, open http://localhost:3001 and add a PostgreSQL database at `postgres:5432` with database, user and password `pizza`.
 
-### Kehitys ilman kontteja sovellukselle
+### Development without containers for the app
 
 ```bash
-docker compose up postgres temporal      # vain riippuvuudet
+docker compose up postgres temporal      # dependencies only
 npm install
 npm run dev:api                          # http://localhost:3000
 npm run dev:worker
 npm run dev:web                          # http://localhost:5173
-npm run sim                              # valinnainen: keittiö + kuljettajat
+npm run sim                              # optional: kitchen + drivers
 ```
 
-### Testit
+### Tests
 
 ```bash
-npm test                                                             # yksikkö- ja workflow-testit
-TEST_DATABASE_URL=postgres://pizza:pizza@localhost:5432/pizza npm test   # + activityt ja API oikeaa Postgresia vasten
+npm test                                                             # unit and workflow tests
+TEST_DATABASE_URL=postgres://pizza:pizza@localhost:5432/pizza npm test   # + activities and API against a real Postgres
 ```
 
-Workflow-testit ajetaan oikeaa Temporal-kehityspalvelinta vasten (ladataan automaattisesti; `SKIP_TEMPORAL_TESTS=1` ohittaa).
+Workflow tests run against a real Temporal dev server (downloaded automatically; `SKIP_TEMPORAL_TESTS=1` skips them).
 
-## Demot
+## Demos
 
-**Kaaos**: tee tilaus, tapa workerit ja käynnistä ne uudelleen. Ketju jatkuu siitä, mihin jäi.
+**Chaos**: place an order, kill the workers and start them again. The workflow continues from where it stopped.
 
 ```bash
 docker compose kill -s SIGKILL worker && docker compose up -d worker
 ```
 
-**Häiriöinen maksupalvelu**: `SIM_PAYMENT_FAIL_RATE=0.3 docker compose --profile sim up`. Temporal UI:ssa näkyvät uudelleenyritykset, tietokannassa täsmälleen yksi maksu per tilaus.
+**Flaky payment provider**: `SIM_PAYMENT_FAIL_RATE=0.3 docker compose --profile sim up`. The retries show in the Temporal UI; the database has exactly one payment per order.
 
-**Kuorma**:
+**Load**:
 
 ```bash
-npm run load -- --orders 10000 --concurrency 50 --restock            # 10 000 ketjua odottamaan maksua
-npm run load -- --orders 500 --restock --pay --wait                  # ketjut loppuun asti (simulaattorin kanssa)
+npm run load -- --orders 10000 --concurrency 50 --restock            # 10,000 workflows waiting for payment
+npm run load -- --orders 500 --restock --pay --wait                  # workflows to completion (with the simulator)
 ```
 
-Ensimmäinen komento on "10 000 samanaikaista ketjua" -tilanne: ketjut odottavat maksua 15 minuuttia ja raukeavat sitten hallitusti, varasto palautuu. 10 000 ketjun läpimenoa ei ole vielä mitattu oikealla klusterilla; se on mittaus, ei arkkitehtuurin lupaus.
+The first command is the "10,000 concurrent workflows" case: the workflows wait 15 minutes for payment, then expire in a controlled way and the stock comes back. Throughput for 10,000 workflows has not been measured on a real cluster yet; it is a measurement, not a promise of the architecture.
 
-## Rakenne
+## Layout
 
 ```
-server/                 yksi paketti, kolme käynnistyskomentoa (api, worker, sim)
-  src/workflows/        tilausketju (deterministinen koodi)
-  src/activities/       sivuvaikutukset: hinnoittelu, varasto, maksut, tilasiirtymät
-  src/payments/         maksurajapinta: sim + Stripe
-  src/api/              ohut API ja SSE-väylä
-  src/runtime.ts        ainoa kohta, jossa API koskee Temporaliin
-  src/sim/              keittiö- ja kuljettajasimulaattori, kuormageneraattori
-  migrations/           skeema, ruokalista, BI-näkymät
-web/                    React-käyttöliittymä
+server/                 one package, three start commands (api, worker, sim)
+  src/workflows/        order workflow (deterministic code)
+  src/activities/       side effects: pricing, stock, payments, status transitions
+  src/payments/         payment interface: sim + Stripe
+  src/api/              thin API and SSE bus
+  src/runtime.ts        the only place where the API touches Temporal
+  src/sim/              kitchen and driver simulator, load generator
+  migrations/           schema, menu, BI views
+web/                    React UI
 deploy/                 Kubernetes (Kustomize), Temporal (Helm values), Argo CD
 ```
 
-Periaatteet, jotka kantavat seuraaviin vaiheisiin:
+Principles that carry through every phase:
 
-1. **Kanava ei määritä liiketoimintalogiikkaa.** Web-UI on vain yksi API:n asiakas. Agentti, puhelu tai WhatsApp käyttää samaa `POST /api/orders` -rajapintaa (kenttä `channel`) ja samaa ketjua.
-2. **Agentti ehdottaa, ketju päättää.** Hinta, maksu ja tilauksen tila eivät ole koskaan kutsujan käsissä. Väärässä vaiheessa saapunut signaali ei tee mitään.
-3. **API ei tunne Temporalia** tiedoston `runtime.ts` ulkopuolella, eikä UI tunne sitä lainkaan.
+1. **The channel does not define business logic.** The web UI is just one client of the API. An agent, a call or WhatsApp uses the same `POST /api/orders` endpoint (field `channel`) and the same workflow.
+2. **The agent proposes, the workflow decides.** Price, payment and order status are never in the caller's hands. A signal that arrives in the wrong stage does nothing.
+3. **The API does not know Temporal** outside `runtime.ts`, and the UI does not know it at all.
 
-## Rajaukset tässä vaiheessa
+## Limits
 
-- Ei asiakastilejä: tilausta seurataan salaisella linkillä. Henkilökunnalla on yksi jaettu tunniste, ei käyttäjäkohtaisia oikeuksia.
-- Stripe-toteutus noudattaa Stripen rajapintoja, mutta sitä ei ole ajettu oikeilla avaimilla. Aja se testitilassa ennen live-käyttöä.
-- Toimituspaikka valitaan kartalta; osoitehakua (geokoodausta) ei ole.
-- API:ssa ei ole pyyntörajoitusta (rate limit). Lisää se ingressiin tai API:in ennen julkista käyttöä.
-- Karttapohja tulee OpenStreetMapin julkisilta palvelimilta, jotka on tarkoitettu kevyeen käyttöön. Tuotannossa käytä omaa tai kaupallista karttapalvelua.
-- Sijainti- ja asiakastiedot ovat henkilötietoja: säilytysajat ja tietosuojaseloste puuttuvat.
+- No customer accounts: an order is tracked with a secret link. Staff share one token; there are no per-user permissions.
+- The Stripe implementation follows Stripe's APIs but has not been run with real keys. Run it in test mode before going live.
+- The delivery location is picked on the map; there is no address search (geocoding).
+- The API has no rate limiting. Add it at the ingress or in the API before public use.
+- Map tiles come from OpenStreetMap's public servers, which are meant for light use. Use your own or a commercial tile service in production.
+- Location and customer data are personal data: retention periods and a privacy notice are missing.
 
-## Tiekartta
+## Roadmap
 
-| Vaihe | Sisältö |
+| Phase | Content |
 |---|---|
-| **1 (tämä)** | Kauppa, tilausketju, maksut, varasto, karttaseuranta, BI-näkymät, Kubernetes, CI |
-| 2 | Tilausagentti (Deep Agents Temporaliin käärittynä, middleware rajaa työkalut) ja chat-käyttöliittymä |
-| 3 | Kanavat: puhelu (ElevenLabs + Twilio), WhatsApp, sähköposti yhteisen kanava-adapterin kautta; asiakkaan tunnistus |
-| 4 | Kehitysagentit samassa klusterissa omassa node-poolissa: GitHub-issue → PR → CI → canary; BI:stä nousevat parannusehdotukset |
+| **1 (done)** | Shop, order workflow, payments, stock, map tracking, BI views, Kubernetes, CI |
+| 2 | Ordering agent (Deep Agents wrapped in Temporal, middleware limits the tools) and a chat UI |
+| 3 | Channels: phone (ElevenLabs + Twilio), WhatsApp, email through a shared channel adapter; customer identity |
+| 4 | Development agents in the same cluster on their own node pool: GitHub issue → PR → CI → canary; improvement suggestions from BI |

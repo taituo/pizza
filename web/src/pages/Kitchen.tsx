@@ -11,7 +11,7 @@ interface Ingredient {
 
 export function Kitchen() {
   return (
-    <StaffGate title="Keittiö">
+    <StaffGate title="Kitchen">
       <KitchenBoard />
     </StaffGate>
   );
@@ -24,15 +24,15 @@ function KitchenBoard() {
     return (
       <main className="page">
         <div className="notice error" role="alert">
-          <p>Tilauksia ei saatu ladattua. {error}</p>
+          <p>Could not load orders. {error}</p>
           <button className="btn" onClick={reload}>
-            Yritä uudelleen
+            Try again
           </button>
         </div>
       </main>
     );
   }
-  if (!orders) return <main className="page muted">Ladataan tilauksia…</main>;
+  if (!orders) return <main className="page muted">Loading orders…</main>;
 
   const incoming = orders.filter((o) => o.status === 'paid');
   const preparing = orders.filter((o) => o.status === 'preparing');
@@ -42,9 +42,9 @@ function KitchenBoard() {
   return (
     <main className="page">
       <header className="board-head">
-        <h1>Keittiö</h1>
+        <h1>Kitchen</h1>
         <p className="muted">
-          {orders.length - unpaid} työn alla · {unpaid} odottaa asiakkaan maksua
+          {orders.length - unpaid} in progress · {unpaid} awaiting customer payment
         </p>
       </header>
       {actionError && (
@@ -53,34 +53,34 @@ function KitchenBoard() {
         </p>
       )}
       <div className="board">
-        <Column title="Uudet" empty="Ei uusia tilauksia." orders={incoming}>
+        <Column title="New" empty="No new orders." orders={incoming}>
           {(o) => (
             <>
               <button className="btn primary" onClick={() => act(`/api/staff/orders/${o.id}/kitchen`, { action: 'accept' })}>
-                Hyväksy
+                Accept
               </button>
               <button className="btn quiet" onClick={() => act(`/api/staff/orders/${o.id}/kitchen`, { action: 'reject' })}>
-                Hylkää
+                Reject
               </button>
             </>
           )}
         </Column>
-        <Column title="Valmistuksessa" empty="Uuni on tyhjä." orders={preparing}>
+        <Column title="Preparing" empty="The oven is empty." orders={preparing}>
           {(o) => (
             <button className="btn primary" onClick={() => act(`/api/staff/orders/${o.id}/kitchen`, { action: 'ready' })}>
-              Valmis
+              Ready
             </button>
           )}
         </Column>
-        <Column title="Valmiina" empty="Ei luovutusta odottavia." orders={ready}>
+        <Column title="Ready" empty="Nothing waiting for handover." orders={ready}>
           {(o) =>
             o.fulfillment === 'pickup' ? (
               <button className="btn primary" onClick={() => act(`/api/staff/orders/${o.id}/delivery`, { action: 'handover' })}>
-                Luovutettu asiakkaalle
+                Handed to customer
               </button>
             ) : (
               <span className="small muted">
-                {o.status === 'out_for_delivery' ? `Kuljetuksessa (${o.driver?.id})` : 'Odottaa kuljettajaa'}
+                {o.status === 'out_for_delivery' ? `Out for delivery (${o.driver?.id})` : 'Waiting for a driver'}
               </span>
             )
           }
@@ -112,15 +112,15 @@ function Column({
         <article className="card ticket" key={o.id}>
           <div className="ticket-head">
             <strong>#{o.id.slice(0, 6)}</strong>
-            <span className={`tag ${o.fulfillment}`}>{o.fulfillment === 'delivery' ? 'Kuljetus' : 'Nouto'}</span>
+            <span className={`tag ${o.fulfillment}`}>{o.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}</span>
             <span className="small muted">{minutesSince(o.updatedAt)} min</span>
           </div>
           <ul className="ticket-items">
             {o.items.map((item, i) => (
               <li key={i}>
                 <strong>{item.quantity} ×</strong> {item.name ?? item.productId}
-                {item.size === 'large' && ' (iso)'}
-                {item.without.length > 0 && <em> – ilman: {(item.withoutNames ?? item.without).join(', ')}</em>}
+                {item.size === 'large' && ' (large)'}
+                {item.without.length > 0 && <em> – without: {(item.withoutNames ?? item.without).join(', ')}</em>}
               </li>
             ))}
           </ul>
@@ -162,21 +162,21 @@ function Stock() {
 
   return (
     <section className="card stock">
-      <h2>Varasto</h2>
+      <h2>Stock</h2>
       {error && (
         <p className="notice error" role="alert">
           {error}
         </p>
       )}
       {!items ? (
-        <p className="muted">Ladataan…</p>
+        <p className="muted">Loading…</p>
       ) : (
         <ul>
           {items.map((i) => (
             <li key={i.id} className={i.stock < 20 ? 'low' : ''}>
               <span>{i.name}</span>
               <strong>{i.stock}</strong>
-              <button className="btn quiet small" onClick={() => restock(i.id)} aria-label={`Lisää 100: ${i.name}`}>
+              <button className="btn quiet small" onClick={() => restock(i.id)} aria-label={`Add 100: ${i.name}`}>
                 +100
               </button>
             </li>

@@ -11,17 +11,17 @@ import {
 } from './domain/signals';
 import { workflowIdForOrder, type Fulfillment } from './domain/types';
 
-/** Tilausketju on jo päättynyt tai sitä ei ole: signaalia ei voitu toimittaa. */
+/** The order workflow has already finished or does not exist: the signal could not be delivered. */
 export class OrderNotActiveError extends Error {
   constructor(orderId: string) {
-    super(`Tilausketju ${orderId} ei ole käynnissä`);
+    super(`Order workflow ${orderId} is not running`);
     this.name = 'OrderNotActiveError';
   }
 }
 
 /**
- * Ainoa rajapinta, jonka kautta API (ja myöhemmin agentit ja kanava-adapterit) koskee
- * tilausketjuihin. API ei tiedä Temporalista tämän tiedoston ulkopuolella mitään.
+ * The only interface through which the API (and later agents and channel adapters) touches
+ * order workflows. Outside this file the API knows nothing about Temporal.
  */
 export interface OrderRuntime {
   start(orderId: string, fulfillment: Fulfillment): Promise<void>;

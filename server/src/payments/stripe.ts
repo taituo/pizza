@@ -2,9 +2,9 @@ import Stripe from 'stripe';
 import type { PaymentProvider, PaymentRequest } from './types';
 
 /**
- * Stripe Checkout. Asiakas maksaa Stripen sivulla; tulos tulee allekirjoitettuna webhookina
- * (ks. api/routes.ts), joka signaloi tilausketjua. Kaikki kirjoittavat kutsut käyttävät
- * tilauskohtaista idempotency-avainta.
+ * Stripe Checkout. The customer pays on Stripe's page; the result arrives as a signed webhook
+ * (see api/app.ts) that signals the order workflow. Every writing call uses a
+ * per-order idempotency key.
  */
 export class StripePaymentProvider implements PaymentProvider {
   readonly name = 'stripe' as const;
@@ -25,7 +25,7 @@ export class StripePaymentProvider implements PaymentProvider {
         currency: 'eur',
         unit_amount: item.unitPriceCents,
         product_data: {
-          name: item.size === 'large' ? `${item.name} (iso)` : item.name,
+          name: item.size === 'large' ? `${item.name} (large)` : item.name,
         },
       },
     }));
@@ -48,7 +48,7 @@ export class StripePaymentProvider implements PaymentProvider {
         line_items: lineItems,
         success_url: `${returnUrl}&paid=1`,
         cancel_url: returnUrl,
-        // Stripen minimi on 30 min; tilausketjun oma maksuaikakatkaisu mitätöi session aiemmin.
+        // Stripe's minimum is 30 min; the order workflow's own payment timeout voids the session earlier.
         expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       },
       { idempotencyKey: `order-${req.orderId}-checkout` },
@@ -63,7 +63,7 @@ export class StripePaymentProvider implements PaymentProvider {
       try {
         await this.stripe.checkout.sessions.expire(ref);
       } catch (err) {
-        // Kilpatilanne: asiakas ehti maksaa juuri ennen mitätöintiä.
+        // Race: the customer paid just before the void.
         const after = await this.stripe.checkout.sessions.retrieve(ref);
         if (after.payment_status === 'paid') return 'paid';
         if (after.status === 'open') throw err;

@@ -56,7 +56,7 @@ export function loadConfig(): Config {
     stripeWebhookSecret: env('STRIPE_WEBHOOK_SECRET', ''),
     simPaymentFailRate: num('SIM_PAYMENT_FAIL_RATE', 0),
     restaurant: {
-      name: env('RESTAURANT_NAME', 'Pizzeria Kultainen Näyte'),
+      name: env('RESTAURANT_NAME', 'Golden Sample Pizzeria'),
       lat: num('RESTAURANT_LAT', 60.1699),
       lng: num('RESTAURANT_LNG', 24.9384),
     },

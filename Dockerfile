@@ -1,6 +1,6 @@
-# Kaksi kuvaa samasta tiedostosta:
-#   docker build --target server -t pizza-server .   (API, workeri, simulaattori: eri käynnistyskomento)
-#   docker build --target web    -t pizza-web .      (staattinen UI + /api-välitys)
+# Two images from one file:
+#   docker build --target server -t pizza-server .   (API, worker, simulator: different start command)
+#   docker build --target web    -t pizza-web .      (static UI + /api proxy)
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
@@ -17,7 +17,7 @@ FROM deps AS build-web
 COPY web web
 RUN npm run build -w web
 
-# Temporalin workeri sisältää natiivikirjaston, joka vaatii glibc:n (ei Alpinea).
+# The Temporal worker includes a native library that requires glibc (no Alpine).
 FROM node:22-bookworm-slim AS server
 ENV NODE_ENV=production
 WORKDIR /app

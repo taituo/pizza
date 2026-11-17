@@ -44,7 +44,7 @@ const CreateOrder = z
       .max(30),
   })
   .refine((o) => o.fulfillment === 'pickup' || (o.address && o.lat !== undefined && o.lng !== undefined), {
-    message: 'Kotiinkuljetus vaatii osoitteen ja sijainnin',
+    message: 'Delivery requires an address and a location',
   });
 
 const KitchenAction = z.object({ action: z.enum(['accept', 'reject', 'ready']) });
@@ -78,14 +78,14 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
       return reply.code(400).send({ error: err.issues.map((i) => i.message).join('; ') });
     }
     if (err instanceof OrderValidationError) return reply.code(400).send({ error: err.message });
-    if (err instanceof OrderNotActiveError) return reply.code(409).send({ error: 'Tilaus ei ole enää aktiivinen' });
+    if (err instanceof OrderNotActiveError) return reply.code(409).send({ error: 'The order is no longer active' });
     if (err instanceof HttpError) return reply.code(err.statusCode).send({ error: err.message });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
     req.log.error(err);
-    return reply.code(500).send({ error: 'Sisäinen virhe' });
+    return reply.code(500).send({ error: 'Internal error' });
   });
 
-  // --- apurit ---
+  // --- helpers ---
 
   let catalogCache: { at: number; catalog: Catalog } | undefined;
   const getCatalog = async (): Promise<Catalog> => {
@@ -102,12 +102,12 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     return token !== '' && safeEqual(token, cfg.staffToken);
   };
   const requireStaff = (req: FastifyRequest): void => {
-    if (!isStaff(req)) throw new HttpError(401, 'Henkilökunnan tunniste puuttuu tai on väärä');
+    if (!isStaff(req)) throw new HttpError(401, 'Staff token is missing or wrong');
   };
 
   const orderId = (req: FastifyRequest): string => UUID.parse((req.params as { id: string }).id);
 
-  /** Asiakas tunnistetaan tilauskohtaisella salaisella tunnisteella; henkilökunta omallaan. */
+  /** Customers are identified by a per-order secret token; staff by their own. */
   const requireOrderAccess = async (req: FastifyRequest): Promise<string> => {
     const id = orderId(req);
     if (isStaff(req)) return id;
@@ -117,14 +117,14 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     const res = await pool.query('select access_token from orders where id = $1', [id]);
     const row = res.rows[0];
     if (!row || token === '' || !safeEqual(token, row.access_token)) {
-      throw new HttpError(404, 'Tilausta ei löydy');
+      throw new HttpError(404, 'Order not found');
     }
     return id;
   };
 
   const orderStatus = async (id: string): Promise<{ status: string; fulfillment: string }> => {
     const res = await pool.query('select status, fulfillment from orders where id = $1', [id]);
-    if (!res.rows[0]) throw new HttpError(404, 'Tilausta ei löydy');
+    if (!res.rows[0]) throw new HttpError(404, 'Order not found');
     return res.rows[0];
   };
 
@@ -165,7 +165,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     updatedAt: r.updated_at,
   });
 
-  // --- julkinen ---
+  // --- public ---
 
   app.get('/healthz', async () => ({ ok: true }));
   app.get('/readyz', async () => {
@@ -197,13 +197,13 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
   app.post('/api/orders', async (req, reply) => {
     const body = CreateOrder.parse(req.body);
 
-    // Nopea palaute asiakkaalle. Tilausketju hinnoittelee ja tarkistaa saman vielä itse:
-    // se on tilauksen virallinen totuus, tämä vain säästää turhan ketjun käynnistyksen.
+    // Fast feedback for the customer. The order workflow prices and checks the same again itself:
+    // it is the order's source of truth; this only avoids starting a pointless workflow.
     const estimate = priceOrder(body.items, await getCatalog(), body.fulfillment, cfg.deliveryFeeCents);
     if (body.fulfillment === 'delivery') {
       const km = haversineKm(cfg.restaurant, { lat: body.lat!, lng: body.lng! });
       if (km > cfg.deliveryRadiusKm) {
-        throw new HttpError(400, `Osoite on toimitusalueen ulkopuolella (${km.toFixed(1)} km)`);
+        throw new HttpError(400, `The address is outside the delivery area (${km.toFixed(1)} km)`);
       }
     }
 
@@ -241,7 +241,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
         );
         await recordEvent(tx, id, 'status.cancelled', { cancelReason: 'internal_error' });
       });
-      throw new HttpError(503, 'Tilauksia ei voida juuri nyt ottaa vastaan. Yritä hetken kuluttua uudelleen.');
+      throw new HttpError(503, 'We cannot take orders right now. Please try again in a moment.');
     }
     return reply.code(201).send({ id, accessToken, estimatedTotalCents: estimate.totalCents });
   });
@@ -271,39 +271,39 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     const id = await requireOrderAccess(req);
     const { status } = await orderStatus(id);
     if (!['created', 'awaiting_payment', 'paid'].includes(status)) {
-      throw new HttpError(409, 'Tilausta ei voi enää perua, koska keittiö on jo aloittanut sen');
+      throw new HttpError(409, 'The order can no longer be cancelled because the kitchen has started it');
     }
     await runtime.cancel(id, 'customer_cancelled');
     return reply.code(202).send({ ok: true });
   });
 
-  /** Simuloitu maksu. Oikeassa maksussa (Stripe) tämän tekee allekirjoitettu webhook. */
+  /** Simulated payment. With a real provider (Stripe) a signed webhook does this. */
   app.post('/api/orders/:id/pay', async (req, reply) => {
-    if (cfg.paymentProvider !== 'sim') throw new HttpError(404, 'Ei käytössä');
+    if (cfg.paymentProvider !== 'sim') throw new HttpError(404, 'Not enabled');
     const id = await requireOrderAccess(req);
     const res = await pool.query('select status from payments where order_id = $1', [id]);
     const payment = res.rows[0];
-    if (!payment) throw new HttpError(409, 'Maksua ei ole vielä avattu');
+    if (!payment) throw new HttpError(409, 'The payment has not been opened yet');
     if (payment.status === 'pending') await markPaymentSucceeded(pool, id);
-    else if (payment.status !== 'succeeded') throw new HttpError(409, 'Maksu ei ole enää avoinna');
-    // Signaali on idempotentti: jos edellinen yritys kaatui tähän väliin, uusi kutsu korjaa tilanteen.
+    else if (payment.status !== 'succeeded') throw new HttpError(409, 'The payment is no longer open');
+    // The signal is idempotent: if a previous attempt crashed right here, a new call repairs it.
     await runtime.paymentResult(id, 'succeeded');
     return reply.code(202).send({ ok: true });
   });
 
-  // --- Stripe-webhook (raaka runko allekirjoituksen tarkistusta varten) ---
+  // --- Stripe webhook (raw body for signature verification) ---
 
   if (stripe) {
     app.register(async (scope) => {
       scope.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
       scope.post('/api/webhooks/stripe', async (req, reply) => {
         const signature = req.headers['stripe-signature'];
-        if (typeof signature !== 'string') throw new HttpError(400, 'Allekirjoitus puuttuu');
+        if (typeof signature !== 'string') throw new HttpError(400, 'Signature is missing');
         let event;
         try {
           event = stripe.verifyWebhook(req.body as Buffer, signature, cfg.stripeWebhookSecret);
         } catch {
-          throw new HttpError(400, 'Virheellinen allekirjoitus');
+          throw new HttpError(400, 'Invalid signature');
         }
         if (!event.type.startsWith('checkout.session.')) return reply.send({ received: true });
 
@@ -326,7 +326,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
             await runtime.paymentResult(id, 'failed');
           }
         } catch (err) {
-          if (!(err instanceof OrderNotActiveError)) throw err; // 500 → Stripe yrittää uudelleen
+          if (!(err instanceof OrderNotActiveError)) throw err; // 500 → Stripe retries
           if (paid) req.log.error({ orderId: id }, 'payment succeeded for an order that is no longer active');
         }
         return reply.send({ received: true });
@@ -334,7 +334,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     });
   }
 
-  // --- henkilökunta: keittiö, kuljettajat, varasto ---
+  // --- staff: kitchen, drivers, stock ---
 
   app.get('/api/staff/events', async (req, reply) => {
     requireStaff(req);
@@ -367,10 +367,10 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     const { action } = KitchenAction.parse(req.body);
     const { status } = await orderStatus(id);
     if (action === 'ready') {
-      if (status !== 'preparing') throw new HttpError(409, 'Tilaus ei ole valmistuksessa');
+      if (status !== 'preparing') throw new HttpError(409, 'The order is not being prepared');
       await runtime.kitchenReady(id);
     } else {
-      if (status !== 'paid') throw new HttpError(409, 'Tilaus ei odota keittiön hyväksyntää');
+      if (status !== 'paid') throw new HttpError(409, 'The order is not waiting for kitchen approval');
       await runtime.kitchenDecision(id, action === 'accept');
     }
     return reply.code(202).send({ ok: true });
@@ -381,7 +381,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
     const id = orderId(req);
     const body = DeliveryAction.parse(req.body);
     if (body.action === 'assign') {
-      if (!body.driverId) throw new HttpError(400, 'driverId puuttuu');
+      if (!body.driverId) throw new HttpError(400, 'driverId is missing');
       const claimed = await withTx(pool, async (tx) => {
         const res = await tx.query(
           `update orders set driver_id = $2, updated_at = now()
@@ -393,16 +393,16 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
       });
       if (!claimed) {
         const existing = await pool.query('select driver_id, status from orders where id = $1', [id]);
-        // Sama kuljettaja yrittää uudelleen (esim. verkkovirheen jälkeen): toimita signaali uudestaan.
+        // The same driver retries (e.g. after a network error): deliver the signal again.
         if (existing.rows[0]?.driver_id !== body.driverId || existing.rows[0]?.status !== 'ready') {
-          throw new HttpError(409, 'Tilaus ei ole vapaana kuljetettavaksi');
+          throw new HttpError(409, 'The order is not available for delivery');
         }
       }
       await runtime.driverAssigned(id, body.driverId);
     } else {
       const { status, fulfillment } = await orderStatus(id);
       const ok = fulfillment === 'delivery' ? status === 'out_for_delivery' : status === 'ready';
-      if (!ok) throw new HttpError(409, 'Tilausta ei voi vielä luovuttaa');
+      if (!ok) throw new HttpError(409, 'The order cannot be handed over yet');
       await runtime.handedOver(id);
     }
     return reply.code(202).send({ ok: true });
@@ -416,8 +416,8 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
   });
 
   /**
-   * Kuljettajan sijainti. Tiheä sijaintivirta ei kulje tilausketjun läpi (se paisuttaisi
-   * ketjun historiaa), vaan suoraan tietokantaan ja sieltä asiakkaan kartalle.
+   * Driver location. The dense location stream does not go through the order workflow (it would
+   * bloat the workflow history) but straight to the database and from there to the customer's map.
    */
   app.post('/api/staff/orders/:id/location', async (req, reply) => {
     requireStaff(req);
@@ -441,7 +441,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
       await notify(tx, { orderId: id, type: 'location', lat, lng });
       return true;
     });
-    if (!updated) throw new HttpError(409, 'Tilaus ei ole kuljetuksessa');
+    if (!updated) throw new HttpError(409, 'The order is not out for delivery');
     return reply.code(204).send();
   });
 
@@ -459,7 +459,7 @@ export function buildApp({ cfg, pool, runtime, hub, stripe, logger = true }: App
       id,
       amount,
     ]);
-    if (!res.rows[0]) throw new HttpError(404, 'Raaka-ainetta ei löydy');
+    if (!res.rows[0]) throw new HttpError(404, 'Ingredient not found');
     return res.rows[0];
   });
 

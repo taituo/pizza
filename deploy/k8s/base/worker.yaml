@@ -1,5 +1,5 @@
-# Tilausketjujen workerit. Tilattomia: replikoita voi lisätä ja tappaa vapaasti,
-# keskeneräiset ketjut jatkuvat toisella workerilla siitä, mihin jäivät.
+# Order workflow workers. Stateless: replicas can be added and killed freely;
+# unfinished workflows continue on another worker from where they left off.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,11 +13,11 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: worker }
     spec:
-      # Pidempi kuin workerin shutdownGraceTime (20 s), jotta käynnissä olevat activityt ehtivät valmistua.
+      # Longer than the worker's shutdownGraceTime (20 s), so running activities have time to finish.
       terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000 # kuvan node-käyttäjä
+        runAsUser: 1000 # the image's node user
         runAsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
       containers:

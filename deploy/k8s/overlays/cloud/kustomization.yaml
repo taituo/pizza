@@ -1,5 +1,5 @@
-# Pilvi (EKS/GKE): hallittu Postgres klusterin ulkopuolella, automaattinen skaalaus,
-# replikat eri solmuille. DATABASE_URL Secretissä osoittaa hallittuun kantaan.
+# Cloud (EKS/GKE): managed Postgres outside the cluster, autoscaling,
+# replicas on different nodes. DATABASE_URL in the Secret points to the managed database.
 #   kubectl apply -k deploy/k8s/overlays/cloud
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

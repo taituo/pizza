@@ -1,5 +1,5 @@
-# Ei-salaiset asetukset. Salaisuudet (DATABASE_URL, STAFF_TOKEN, Stripe-avaimet) tulevat
-# Secretistä "pizza-secrets", jota ei säilytetä versionhallinnassa: ks. deploy/README.md.
+# Non-secret settings. Secrets (DATABASE_URL, STAFF_TOKEN, Stripe keys) come from the
+# Secret "pizza-secrets", which is not kept in version control: see deploy/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,7 +10,7 @@ data:
   TEMPORAL_TASK_QUEUE: orders
   PAYMENT_PROVIDER: sim
   PUBLIC_URL: https://pizza.example.com
-  RESTAURANT_NAME: Pizzeria Kultainen Näyte
+  RESTAURANT_NAME: Golden Sample Pizzeria
   RESTAURANT_LAT: "60.1699"
   RESTAURANT_LNG: "24.9384"
   DELIVERY_RADIUS_KM: "8"

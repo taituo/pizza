@@ -13,30 +13,30 @@ export interface ActivityDeps {
 }
 
 /**
- * Kaikki tilausketjun sivuvaikutukset. Jokainen activity on idempotentti tilauksen suhteen,
- * koska Temporal ajaa sen uudelleen, jos workeri kaatuu tai vastaus katoaa matkalla.
+ * All side effects of the order workflow. Every activity is idempotent per order,
+ * because Temporal re-runs it if a worker crashes or a response is lost on the way.
  */
 export function createActivities({ pool, payments, cfg }: ActivityDeps) {
   return {
-    /** Hinnoittelee tilauksen palvelimen katalogista ja tarkistaa toimitusalueen. */
+    /** Prices the order from the server catalog and checks the delivery area. */
     async validateAndPrice(orderId: string): Promise<{ totalCents: number }> {
       const res = await pool.query(
         'select items, fulfillment, lat, lng, total_cents from orders where id = $1',
         [orderId],
       );
       const order = res.rows[0];
-      if (!order) throw ApplicationFailure.nonRetryable(`Tilausta ${orderId} ei ole`, 'InvalidOrder');
+      if (!order) throw ApplicationFailure.nonRetryable(`Order ${orderId} does not exist`, 'InvalidOrder');
       if (order.total_cents !== null) return { totalCents: order.total_cents };
 
       try {
         if (order.fulfillment === 'delivery') {
           if (order.lat === null || order.lng === null) {
-            throw new OrderValidationError('Toimitusosoitteen sijainti puuttuu');
+            throw new OrderValidationError('The delivery location is missing');
           }
           const km = haversineKm(cfg.restaurant, { lat: order.lat, lng: order.lng });
           if (km > cfg.deliveryRadiusKm) {
             throw new OrderValidationError(
-              `Osoite on toimitusalueen ulkopuolella (${km.toFixed(1)} km, raja ${cfg.deliveryRadiusKm} km)`,
+              `The address is outside the delivery area (${km.toFixed(1)} km, limit ${cfg.deliveryRadiusKm} km)`,
             );
           }
         }
@@ -61,25 +61,25 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
       }
     },
 
-    /** Varaa raaka-aineet varastosta. Yksi varausrivi per tilaus tekee tästä idempotentin. */
+    /** Reserves ingredients from stock. One reservation row per order makes this idempotent. */
     async reserveStock(orderId: string): Promise<void> {
       await withTx(pool, async (tx) => {
-        // Lukitsee tilauksen: saman tilauksen rinnakkainen uudelleenyritys odottaa tässä.
+        // Locks the order: a concurrent retry for the same order waits here.
         const order = await tx.query('select items from orders where id = $1 for update', [orderId]);
-        if (!order.rows[0]) throw ApplicationFailure.nonRetryable(`Tilausta ${orderId} ei ole`, 'InvalidOrder');
+        if (!order.rows[0]) throw ApplicationFailure.nonRetryable(`Order ${orderId} does not exist`, 'InvalidOrder');
         const existing = await tx.query('select 1 from stock_reservations where order_id = $1', [orderId]);
         if (existing.rowCount) return;
 
         const catalog = await loadCatalog(tx);
         const needs = ingredientNeeds(order.rows[0].items as OrderItemRequest[], catalog);
-        // Aina samassa järjestyksessä, jotta rinnakkaiset tilaukset eivät lukkiudu ristiin.
+        // Always in the same order, so concurrent orders cannot deadlock each other.
         for (const id of Object.keys(needs).sort()) {
           const updated = await tx.query(
             'update ingredients set stock = stock - $2 where id = $1 and stock >= $2',
             [id, needs[id]],
           );
           if (!updated.rowCount) {
-            throw ApplicationFailure.nonRetryable(`Raaka-aine loppu: ${id}`, 'OutOfStock');
+            throw ApplicationFailure.nonRetryable(`Out of stock: ${id}`, 'OutOfStock');
           }
         }
         await tx.query('insert into stock_reservations (order_id, needs) values ($1, $2)', [
@@ -90,7 +90,7 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
       });
     },
 
-    /** Kompensaatio: palauttaa varatut raaka-aineet täsmälleen kerran. */
+    /** Compensation: returns the reserved ingredients exactly once. */
     async releaseStock(orderId: string): Promise<void> {
       await withTx(pool, async (tx) => {
         const res = await tx.query(
@@ -108,7 +108,7 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
       });
     },
 
-    /** Avaa maksun maksupalvelussa. Uudelleenajo palauttaa saman maksun eikä luo toista. */
+    /** Opens a payment with the provider. A re-run returns the same payment instead of creating another. */
     async startPayment(orderId: string): Promise<void> {
       const existing = await pool.query('select 1 from payments where order_id = $1', [orderId]);
       if (existing.rowCount) return;
@@ -119,10 +119,10 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
       );
       const order = res.rows[0];
       if (!order || order.total_cents === null) {
-        throw ApplicationFailure.nonRetryable(`Tilausta ${orderId} ei ole hinnoiteltu`, 'InvalidOrder');
+        throw ApplicationFailure.nonRetryable(`Order ${orderId} has not been priced`, 'InvalidOrder');
       }
-      // Palvelukutsu on idempotentti tilauskohtaisella avaimella, joten kaatuminen tämän
-      // ja alla olevan insertin välissä ei luo toista maksua.
+      // The provider call is idempotent on a per-order key, so a crash between it
+      // and the insert below does not create a second payment.
       const started = await payments.start({
         orderId,
         accessToken: order.access_token,
@@ -147,8 +147,8 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
     },
 
     /**
-     * Mitätöi maksamattoman maksun (aikakatkaisu tai peruutus). Jos asiakas ehti silti maksaa,
-     * maksu hyvitetään heti: tilausta ei koskaan jätetä tilaan "maksettu mutta peruttu".
+     * Voids an unpaid payment (timeout or cancellation). If the customer still managed to pay,
+     * the payment is refunded right away: an order is never left "paid but cancelled".
      */
     async cancelPayment(orderId: string): Promise<void> {
       const res = await pool.query('select provider_ref, status from payments where order_id = $1', [orderId]);
@@ -172,12 +172,12 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
       await refund(orderId);
     },
 
-    /** Kompensaatio: hyvittää onnistuneen maksun täsmälleen kerran. */
+    /** Compensation: refunds a successful payment exactly once. */
     async refundPayment(orderId: string): Promise<void> {
       await refund(orderId);
     },
 
-    /** Siirtää tilauksen uuteen tilaan ja julkaisee tapahtuman. Uudelleenajo ei tuota toista tapahtumaa. */
+    /** Moves the order to a new status and publishes an event. A re-run does not produce a second event. */
     async transition(orderId: string, status: OrderStatus, cancelReason?: CancelReason): Promise<void> {
       await withTx(pool, async (tx) => {
         const updated = await tx.query(
@@ -210,7 +210,7 @@ export function createActivities({ pool, payments, cfg }: ActivityDeps) {
   }
 }
 
-/** Kirjaa maksun onnistuneeksi täsmälleen kerran. Palauttaa true, jos tila muuttui nyt. */
+/** Marks the payment as succeeded exactly once. Returns true if the status changed now. */
 export async function markPaymentSucceeded(pool: Pool, orderId: string): Promise<boolean> {
   return withTx(pool, async (tx) => {
     const updated = await tx.query(

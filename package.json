@@ -2,7 +2,7 @@
   "name": "pizza",
   "private": true,
   "version": "0.1.0",
-  "description": "Agent-Native Commerce — Golden Sample 2026. Vaihe 1: toimiva pizzakauppa Temporalin ja Kubernetesin päällä.",
+  "description": "Agent-Native Commerce — Golden Sample 2026. A pizza shop on Temporal and Kubernetes.",
   "workspaces": [
     "server",
     "web"

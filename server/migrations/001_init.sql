@@ -1,4 +1,4 @@
--- Liiketoiminnan pysyvä tila. Temporal pitää prosessien suoritustilan omissa tietokannoissaan.
+-- Durable business state. Temporal keeps process execution state in its own databases.
 
 create table products (
   id                text primary key,
@@ -38,8 +38,8 @@ create table orders (
   address           text,
   lat               double precision,
   lng               double precision,
-  items             jsonb not null,          -- asiakkaan pyyntö
-  priced_items      jsonb,                   -- palvelimen hinnoittelema versio
+  items             jsonb not null,          -- the customer's request
+  priced_items      jsonb,                   -- the version priced by the server
   delivery_fee_cents integer,
   total_cents       integer,
   driver_id         text,
@@ -54,7 +54,7 @@ create index orders_active_idx on orders (created_at)
   where status not in ('completed', 'cancelled');
 create index orders_status_idx on orders (status);
 
--- Yksi rivi per tilaus: varaus on idempotentti ja vapautettavissa täsmälleen kerran.
+-- One row per order: the reservation is idempotent and can be released exactly once.
 create table stock_reservations (
   order_id   uuid primary key references orders (id),
   needs      jsonb not null,
@@ -62,7 +62,7 @@ create table stock_reservations (
   created_at timestamptz not null default now()
 );
 
--- Yksi rivi per tilaus: samaa tilausta ei voi veloittaa kahdesti.
+-- One row per order: the same order cannot be charged twice.
 create table payments (
   order_id     uuid primary key references orders (id),
   provider     text not null,
@@ -75,7 +75,7 @@ create table payments (
 );
 create index payments_provider_ref_idx on payments (provider_ref);
 
--- Liiketoimintatapahtumat: reaaliaikaisen UI:n ja BI:n yhteinen lähde.
+-- Business events: the shared source for the realtime UI and BI.
 create table order_events (
   id         bigserial primary key,
   order_id   uuid not null references orders (id),

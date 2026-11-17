@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   test:
-    name: Typecheck, testit, build
+    name: Typecheck, tests, build
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -34,14 +34,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # Workflow-testit lataavat Temporalin kehityspalvelimen; tietokantatestit käyttävät yllä olevaa Postgresia.
+      # Workflow tests download the Temporal dev server; database tests use the Postgres above.
       - run: npm test
         env:
           TEST_DATABASE_URL: postgres://pizza:pizza@localhost:5432/pizza
       - run: npm run build
 
   manifests:
-    name: Kubernetes-manifestit ja Temporal-chart
+    name: Kubernetes manifests and Temporal chart
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
             kubectl kustomize deploy/k8s/overlays/$overlay > /tmp/$overlay.yaml
             echo "$overlay: $(grep -c '^kind:' /tmp/$overlay.yaml) resurssia"
           done
-      - name: Temporal Helm -chart molemmilla values-tiedostoilla
+      - name: Temporal Helm chart with both values files
         run: |
           for profile in vps cloud; do
             helm template temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
@@ -60,7 +60,7 @@ jobs:
           done
 
   e2e:
-    name: Koko ketju Docker Composella (kuorma + workerin tappo)
+    name: Full chain on Docker Compose (load + worker kill)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -69,7 +69,7 @@ jobs:
       SIM_PREP_MS: "600"
       SIM_DRIVE_MS: "2000"
       SIM_PICKUP_MS: "300"
-      # Joka kymmenes maksupalvelukutsu epäonnistuu: ketjujen pitää silti päättyä oikein.
+      # Every tenth payment provider call fails: the workflows must still finish correctly.
       SIM_PAYMENT_FAIL_RATE: "0.1"
     steps:
       - uses: actions/checkout@v4
@@ -78,16 +78,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Käynnistä ympäristö
+      - name: Start the environment
         run: docker compose --profile sim up -d --build --wait --wait-timeout 300
-      - name: UI ja API vastaavat nginxin kautta
+      - name: UI and API respond through nginx
         run: |
           curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
           curl -fsS http://localhost:8080/api/menu | grep -q margherita
           curl -fsS http://localhost:8080/order/does-not-exist | grep -q '<div id="root">'
-      - name: 60 tilausta loppuun asti
+      - name: 60 orders to completion
         run: npm run load -- --orders 60 --concurrency 10 --restock --pay --wait --timeout 300
-      - name: Tapa workerit kesken ajon, ketjujen pitää silti päättyä
+      - name: Kill the workers mid-run; the workflows must still finish
         run: |
           npm run load -- --orders 120 --concurrency 20 --restock --pay --wait --timeout 420 &
           LOAD_PID=$!
@@ -96,7 +96,7 @@ jobs:
           sleep 3
           docker compose --profile sim up -d --wait worker
           wait $LOAD_PID
-      - name: Ei kaksoisveloituksia, ei hukattuja varauksia, ei jumiin jääneitä tilauksia
+      - name: No double charges, no lost reservations, no stuck orders
         run: |
           check() {
             local name="$1" sql="$2" n
@@ -104,21 +104,21 @@ jobs:
             echo "$name: $n"
             [ "$n" = "0" ] || { echo "FAIL: $name"; exit 1; }
           }
-          check "tilauksia, joilla useampi onnistunut maksu" \
+          check "orders with more than one successful payment" \
             "select count(*) from (select order_id from order_events where type = 'payment.succeeded' group by 1 having count(*) > 1) x"
-          check "tilauksia, joilla useampi hyvitys" \
+          check "orders with more than one refund" \
             "select count(*) from (select order_id from order_events where type = 'payment.refunded' group by 1 having count(*) > 1) x"
-          check "valmiita tilauksia ilman onnistunutta maksua" \
+          check "completed orders without a successful payment" \
             "select count(*) from orders o left join payments p on p.order_id = o.id where o.status = 'completed' and p.status is distinct from 'succeeded'"
-          check "peruttuja tilauksia, joiden maksu jäi veloitetuksi" \
+          check "cancelled orders whose payment stayed charged" \
             "select count(*) from orders o join payments p on p.order_id = o.id where o.status = 'cancelled' and o.cancel_reason <> 'not_collected' and p.status = 'succeeded'"
-          check "peruttuja tilauksia, joiden varasto jäi vapauttamatta ennen keittiötä" \
+          check "cancelled orders whose stock was not released before the kitchen" \
             "select count(*) from orders o join stock_reservations r on r.order_id = o.id where o.status = 'cancelled' and not r.released and not exists (select 1 from order_events e where e.order_id = o.id and e.type = 'status.preparing')"
-          check "kesken jääneitä tilauksia" \
+          check "unfinished orders" \
             "select count(*) from orders where status not in ('completed', 'cancelled')"
           docker compose exec -T postgres psql -U pizza -d pizza -c "select status, cancel_reason, count(*) from orders group by 1, 2 order by 1, 2"
           docker compose exec -T postgres psql -U pizza -d pizza -c "select * from bi_sales_daily"
-      - name: Lokit virhetilanteessa
+      - name: Logs on failure
         if: failure()
         run: docker compose --profile sim logs --no-color --tail 200
 

@@ -28,12 +28,12 @@ const acts = proxyActivities<Activities>({
     initialInterval: '1 second',
     backoffCoefficient: 2,
     maximumInterval: '30 seconds',
-    // Ei enimmäisyrityksiä: ohimenevä häiriö (tietokanta, maksupalvelu) ei saa kaataa tilausta.
-    // Pysyvät liiketoimintavirheet heitetään activityissä nonRetryable-tyyppisinä.
+    // No maximum attempts: a transient failure (database, payment provider) must not fail the order.
+    // Permanent business errors are thrown from activities as nonRetryable.
   },
 });
 
-/** Sisäinen keskeytys: ketju puretaan kompensaatioilla ja tilaus päättyy tilaan cancelled. */
+/** Internal abort: the workflow unwinds with compensations and the order ends as cancelled. */
 class Abort extends Error {
   constructor(readonly reason: CancelReason) {
     super(reason);
@@ -41,11 +41,11 @@ class Abort extends Error {
 }
 
 /**
- * Tilausketju: validointi → varastovaraus → maksu → keittiö → toimitus/nouto → valmis.
+ * Order workflow: validate → reserve stock → payment → kitchen → delivery/pickup → done.
  *
- * Deterministinen prosessi, joka voi odottaa ihmistä tai ulkoista järjestelmää tunteja
- * ilman yhtään varattua prosessia. Ulkomaailma (API, webhookit, keittiö, kuljettaja,
- * myöhemmin agentit) ohjaa sitä vain signaaleilla; ketju itse päättää, mikä on sallittua.
+ * A deterministic process that can wait for a person or an external system for hours
+ * without holding any process. The outside world (API, webhooks, kitchen, driver,
+ * later agents) steers it only with signals; the workflow itself decides what is allowed.
  */
 export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWorkflowResult> {
   const { orderId } = input;
@@ -62,8 +62,8 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
   let handedOver = false;
   let cancelRequested: 'customer_cancelled' | 'operator_cancelled' | undefined;
 
-  // Signaalit hyväksytään vain siinä vaiheessa, johon ne kuuluvat. Väärässä vaiheessa
-  // saapunut signaali (tuplaklikkaus, myöhästynyt webhook) ei muuta mitään.
+  // Signals are accepted only in the stage they belong to. A signal that arrives in the
+  // wrong stage (double click, late webhook) changes nothing.
   setHandler(paymentResultSignal, ({ status: result }) => {
     if (status === 'awaiting_payment' && payment === undefined) payment = result;
   });
@@ -80,16 +80,16 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     if (status === 'out_for_delivery' || (status === 'ready' && !isDelivery)) handedOver = true;
   });
   setHandler(cancelRequestedSignal, ({ reason }) => {
-    // Asiakas voi perua siihen asti, kun keittiö on hyväksynyt tilauksen.
+    // The customer can cancel until the kitchen has accepted the order.
     const customerMayCancel = status === 'created' || status === 'awaiting_payment' || status === 'paid';
     if (reason === 'operator_cancelled' || customerMayCancel) cancelRequested ??= reason;
   });
   setHandler(orderStateQuery, () => ({ status, cancelReason }));
 
-  // Ketjun oma tila vaihtuu ENNEN kuin tila kirjoitetaan tietokantaan. Ulkomaailma näkee uuden
-  // tilan vasta tietokannasta, joten sen perusteella lähetetty signaali (esim. kuljettaja ottaa
-  // juuri valmistuneen tilauksen) osuu aina vaiheeseen, jonka ketju jo hyväksyy, vaikka signaali
-  // ja activityn valmistuminen käsiteltäisiin samassa erässä workerin katkon jälkeen.
+  // The workflow's own state changes BEFORE the status is written to the database. The outside
+  // world sees the new status only from the database, so a signal sent because of it (e.g. a driver
+  // taking an order that just became ready) always lands in a stage the workflow already accepts,
+  // even if the signal and the activity completion are processed in one batch after a worker outage.
   const transition = async (next: OrderStatus): Promise<void> => {
     status = next;
     await acts.transition(orderId, next);
@@ -108,7 +108,7 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     stockReserved = true;
     checkCancel();
 
-    // --- Maksu ---
+    // --- Payment ---
     await acts.startPayment(orderId);
     paymentStarted = true;
     await transition('awaiting_payment');
@@ -123,7 +123,7 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     await transition('paid');
     checkCancel();
 
-    // --- Keittiö ---
+    // --- Kitchen ---
     const gotDecision = await condition(
       () => kitchenDecision !== undefined || cancelRequested !== undefined,
       timeouts.kitchenAcceptMs,
@@ -133,7 +133,7 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
       throw new Abort(gotDecision ? 'kitchen_rejected' : 'kitchen_timeout');
     }
     await transition('preparing');
-    stockConsumed = true; // raaka-aineet on käytetty, niitä ei enää palauteta varastoon
+    stockConsumed = true; // the ingredients are used; they are no longer returned to stock
 
     const prepared = await condition(
       () => kitchenReady || cancelRequested !== undefined,
@@ -143,7 +143,7 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     if (!prepared) throw new Abort('kitchen_timeout');
     await transition('ready');
 
-    // --- Toimitus tai nouto ---
+    // --- Delivery or pickup ---
     if (isDelivery) {
       const assigned = await condition(
         () => driverId !== undefined || cancelRequested !== undefined,
@@ -161,10 +161,10 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     return { status: 'completed' };
   } catch (err) {
     const reason = abortReason(err);
-    // Kompensaatiot ajetaan loppuun, vaikka koko workflow olisi peruttu Temporalista käsin.
+    // Compensations run to completion even if the whole workflow was cancelled from Temporal.
     await CancellationScope.nonCancellable(async () => {
-      // Noutamatta jäänyt valmis tilaus on asiakkaan vastuulla; muissa tapauksissa
-      // avoin maksu mitätöidään tai jo maksettu hyvitetään.
+      // A finished order that was never collected is the customer's responsibility; otherwise
+      // an open payment is voided or a completed one refunded.
       if (paymentStarted && reason !== 'not_collected') await acts.cancelPayment(orderId);
       if (stockReserved && !stockConsumed) await acts.releaseStock(orderId);
       await acts.transition(orderId, 'cancelled', reason);
@@ -172,7 +172,7 @@ export async function orderWorkflow(input: OrderWorkflowInput): Promise<OrderWor
     status = 'cancelled';
     cancelReason = reason;
     if (err instanceof Abort || isBusinessFailure(err)) return { status: 'cancelled', cancelReason: reason };
-    // Temporalista peruttu ajo tai ohjelmointivirhe: kompensoitu, mutta näkyy Temporalissa sellaisenaan.
+    // Cancelled from Temporal or a programming error: compensated, but surfaces in Temporal as such.
     throw err;
   }
 }

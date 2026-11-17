@@ -83,7 +83,7 @@ describe('ingredientNeeds', () => {
       ],
       catalog,
     );
-    // normaali: 2 × (1 taikina, 2 pepperoni); iso: ceil(1.5)=2 taikinaa, 3 pepperonia, 2 sipulia
+    // normal: 2 × (1 dough, 2 pepperoni); large: ceil(1.5)=2 dough, 3 pepperoni, 2 onion
     expect(needs).toEqual({ dough: 4, pepperoni: 7, onion: 2 });
   });
 });
