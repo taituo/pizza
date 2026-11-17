@@ -1,0 +1,56 @@
+# Temporal pilviasennukselle (EKS/GKE) hallitun Postgresin päällä. Vaihtoehto: Temporal Cloud,
+# jolloin tätä chartia ei asenneta lainkaan ja sovellukselle annetaan TEMPORAL_ADDRESS,
+# TEMPORAL_NAMESPACE ja TEMPORAL_API_KEY.
+#
+#   helm upgrade --install temporal temporal --repo https://go.temporal.io/helm-charts --version 1.8.0 \
+#     --namespace temporal --create-namespace -f deploy/temporal/values-cloud.yaml --timeout 900s
+#
+# Korvaa connectAddr hallitun kannan osoitteella. Tietokannat luodaan valmiiksi tai käyttäjälle
+# annetaan CREATEDB-oikeus. Secret "temporal-db" (avain "password") namespacessa temporal.
+server:
+  replicaCount: 2
+  config:
+    persistence:
+      numHistoryShards: 512
+      datastores:
+        default:
+          sql:
+            createDatabase: false
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal
+            connectAddr: "REPLACE-WITH-MANAGED-POSTGRES-HOST:5432"
+            connectProtocol: tcp
+            user: temporal
+            existingSecret: temporal-db
+            secretKey: password
+            maxConns: 40
+            maxIdleConns: 40
+            tls:
+              enabled: true
+        visibility:
+          sql:
+            createDatabase: false
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal_visibility
+            connectAddr: "REPLACE-WITH-MANAGED-POSTGRES-HOST:5432"
+            connectProtocol: tcp
+            user: temporal
+            existingSecret: temporal-db
+            secretKey: password
+            maxConns: 20
+            maxIdleConns: 20
+            tls:
+              enabled: true
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 7d
+  history:
+    replicaCount: 3
+web:
+  replicaCount: 1

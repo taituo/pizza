@@ -1,0 +1,110 @@
+# Paikallinen kehitys- ja demoympäristö.
+#
+#   docker compose up --build                 kauppa: http://localhost:8080, Temporal UI: http://localhost:8233
+#   docker compose --profile sim up --build   + keittiö- ja kuljettajasimulaattori (tilaukset etenevät itsestään)
+#   docker compose --profile bi up            + Metabase: http://localhost:3001
+#
+# Temporal on tässä kehityspalvelin (yksi prosessi, SQLite). Kubernetes-asennuksissa Temporal
+# käyttää samaa Postgresia kuin sovellus: ks. deploy/temporal.
+
+x-server-env: &server-env
+  DATABASE_URL: postgres://pizza:pizza@postgres:5432/pizza
+  TEMPORAL_ADDRESS: temporal:7233
+  STAFF_TOKEN: ${STAFF_TOKEN:-dev-staff-token}
+  PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+  PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sim}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  SIM_PAYMENT_FAIL_RATE: ${SIM_PAYMENT_FAIL_RATE:-0}
+  NODE_ENV: development
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pizza
+      POSTGRES_PASSWORD: pizza
+      POSTGRES_DB: pizza
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pizza -d pizza"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  temporal:
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    user: root
+    volumes:
+      - temporaldata:/data
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build: { context: ., target: server }
+    command: ["node", "dist/api/main.js"]
+    environment: *server-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      temporal: { condition: service_healthy }
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  worker:
+    build: { context: ., target: server }
+    command: ["node", "dist/worker/main.js"]
+    environment: *server-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      temporal: { condition: service_healthy }
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+
+  web:
+    build: { context: ., target: web }
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "8080:8080"
+
+  sim:
+    profiles: ["sim"]
+    build: { context: ., target: server }
+    command: ["node", "dist/sim/main.js"]
+    environment:
+      API_URL: http://api:3000
+      STAFF_TOKEN: ${STAFF_TOKEN:-dev-staff-token}
+      SIM_AUTOPAY: ${SIM_AUTOPAY:-false}
+      SIM_ACCEPT_MS: ${SIM_ACCEPT_MS:-3000}
+      SIM_PREP_MS: ${SIM_PREP_MS:-10000}
+      SIM_DRIVE_MS: ${SIM_DRIVE_MS:-30000}
+      SIM_PICKUP_MS: ${SIM_PICKUP_MS:-8000}
+    depends_on:
+      api: { condition: service_healthy }
+
+  metabase:
+    profiles: ["bi"]
+    image: metabase/metabase:latest
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  temporaldata:
